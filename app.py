@@ -270,7 +270,7 @@ if st.session_state.stellar_data:
 
         final_summary_cols = ['Other Account Link', 'asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Transaction_Count']
         disp_summary = disp_summary[final_summary_cols]
-        disp_summary.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Transaction Count']
+        disp_summary.columns = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
 
         st.write(f"**Top 10 Accounts (Sorted by {sort_metric.replace('_', ' ')})**")
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
