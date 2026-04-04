@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import urllib.parse
 from datetime import datetime, timezone, timedelta
+from stellar_sdk import Server
 from stellar_logic import (
     analyze_stellar_account, 
     resolve_username_to_id, 
@@ -63,6 +64,10 @@ st.markdown("""
         text-decoration: none;
         float: right;
     }
+    /* KPI Metric Styling adjustments */
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -83,6 +88,27 @@ if 'analysis_months' not in st.session_state:
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
     return analyze_stellar_account(target_id, months=months)
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_balances(account_id):
+    """Fetches real-time account balances from the Stellar Horizon API."""
+    if not account_id: return 0.0, 0.0
+    server = Server("https://horizon.stellar.org")
+    try:
+        account = server.accounts().account_id(account_id).call()
+        balances = account.get('balances', [])
+        dmmk = 0.0
+        nusdt = 0.0
+        for b in balances:
+            asset_code = b.get('asset_code')
+            balance = float(b.get('balance', 0))
+            if asset_code == 'DMMK':
+                dmmk = balance * 1000.0  # Scale DMMK consistently
+            elif asset_code == 'nUSDT':
+                nusdt = balance
+        return dmmk, nusdt
+    except Exception as e:
+        return 0.0, 0.0
 
 def load_account_data(identifier, months):
     with st.spinner(f"Resolving identity and fetching history for {identifier}..."):
@@ -153,6 +179,7 @@ if clear_btn:
     st.session_state.target_id = "" 
     st.query_params.clear()
     fetch_cached_analysis.clear() 
+    fetch_balances.clear()
     st.rerun()
 
 if run_btn and user_input:
@@ -168,6 +195,18 @@ else:
 
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
+
+    # --- KPI SECTION (CURRENT BALANCES) ---
+    st.subheader("Current Balance")
+    dmmk_bal, nusdt_bal = fetch_balances(st.session_state.target_id)
+    
+    b1, b2, b3 = st.columns([1, 1, 2])
+    with b1:
+        st.metric("DMMK", f"{dmmk_bal:,.2f}")
+    with b2:
+        st.metric("nUSDT", f"{nusdt_bal:,.7f}")
+        
+    st.markdown("---")
 
     # --- FILTERS ---
     st.subheader("Interactive Filters")
