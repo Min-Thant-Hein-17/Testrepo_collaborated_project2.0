@@ -127,10 +127,10 @@ if target_from_url and st.session_state.display_name != name_from_url:
 
 # 3. Sidebar Configuration
 st.sidebar.header("Configuration")
-input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
+input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
 
 # Update sidebar inputs to use session state values for auto-filling
-if input_method == "Account Name":
+if input_method == "Username":
     user_input = st.sidebar.text_input(
         "Enter Name", 
         value=st.session_state.display_name, # Auto-fill name
