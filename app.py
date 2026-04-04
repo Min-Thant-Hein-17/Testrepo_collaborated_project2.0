@@ -1,5 +1,5 @@
 import streamlit as st
-import pd as pd
+import pandas as pd
 import urllib.parse
 import calendar
 from datetime import datetime, timezone, timedelta
