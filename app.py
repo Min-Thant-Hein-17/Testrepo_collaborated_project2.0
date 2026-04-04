@@ -71,10 +71,9 @@ if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
 if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
-if 'target_id' not in st.session_state:
+if 'target_id' not in st.session_state:  
     st.session_state.target_id = ""
 if 'analysis_months' not in st.session_state:
-    # Check if a timeframe is already present in the URL
     url_months = st.query_params.get("months")
     if url_months and url_months.isdigit():
         st.session_state.analysis_months = int(url_months)
@@ -192,6 +191,7 @@ if st.session_state.stellar_data:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
+    # Asset Selector Pills
     selected_assets = st.pills(
         "Filter Assets", 
         options=["DMMK", "nUSDT"], 
@@ -246,14 +246,23 @@ if st.session_state.stellar_data:
 
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+
+        # Download Button for Transaction History (Clean Data without HTML links)
+        clean_tx_df = filtered_df.rename(columns={
+            'timestamp': 'Date/Time',
+            'direction': 'Direction',
+            'other_account': 'Other Account',
+            'amount': 'Amount',
+            'asset': 'Asset'
+        })[['Date/Time', 'Direction', 'Other Account', 'Amount', 'Asset']]
         
-        # Add spacing and CSV export button right under the table
         st.markdown("<br>", unsafe_allow_html=True)
         st.download_button(
-            label="📥 Export Transaction History (CSV)", 
-            data=filtered_df.to_csv(index=False).encode('utf-8'), 
+            label="⬇️ Export Transaction History (CSV)",
+            data=clean_tx_df.to_csv(index=False).encode('utf-8'),
             file_name=f"{st.session_state.display_name}_transactions.csv",
-            mime="text/csv"
+            mime="text/csv",
+            key="tx_download_btn"
         )
 
         # --- SUMMARY SECTION ---
@@ -261,6 +270,7 @@ if st.session_state.stellar_data:
         st.markdown("---")
         st.subheader("Summary by Account")
         
+        # Sorting Controls
         s1, s2 = st.columns([2, 1])
         with s1:
             sort_metric = st.selectbox(
@@ -288,6 +298,7 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=ascending_bool).head(10)
 
+        # Format Summary Table
         disp_summary = account_summary.copy()
         disp_summary['Other Account Link'] = disp_summary.apply(create_html_link, axis=1)
         disp_summary['Total Volume'] = disp_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
@@ -301,6 +312,24 @@ if st.session_state.stellar_data:
 
         st.write(f"**Top 10 Accounts (Sorted by {sort_metric.replace('_', ' ')})**")
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+
+        # Download Button for Summary Table (Clean Data without HTML links)
+        clean_summary_df = account_summary.rename(columns={
+            'other_account': 'Other Account',
+            'asset': 'Asset',
+            'Total_Volume': 'Total Volume',
+            'Net_Difference': 'Net Balance',
+            'Tx_Count': 'Tx Count'
+        })[['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']]
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="⬇️ Export Account Summary (CSV)",
+            data=clean_summary_df.to_csv(index=False).encode('utf-8'),
+            file_name=f"{st.session_state.display_name}_summary.csv",
+            mime="text/csv",
+            key="summary_download_btn"
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
