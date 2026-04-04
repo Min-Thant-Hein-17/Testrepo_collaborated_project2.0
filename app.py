@@ -203,7 +203,6 @@ if st.session_state.stellar_data:
     df['month_year'] = df['timestamp'].dt.strftime('%B %Y')
 
     # Create the advanced week label with specific date ranges
-    # dt.weekday returns 0 for Monday and 6 for Sunday
     df['week_start'] = df['timestamp'] - pd.to_timedelta(df['timestamp'].dt.weekday, unit='D')
     df['week_end'] = df['week_start'] + pd.to_timedelta(6, unit='D')
     df['week_label'] = df['week_num'] + " (" + df['week_start'].dt.strftime('%b %d') + " - " + df['week_end'].dt.strftime('%b %d') + ")"
@@ -222,7 +221,8 @@ if st.session_state.stellar_data:
 
     # --- FILTERS ---
     st.subheader("Interactive Filters")
-    t1, t2, t3 = st.columns(3)
+    # Added a 4th column to fit the Custom Date Range neatly
+    t1, t2, t3, t4 = st.columns([1, 1, 1.2, 1.2]) 
     with t1:
         # Get unique Month-Year values, sorted chronologically (newest first)
         available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
@@ -244,6 +244,10 @@ if st.session_state.stellar_data:
         
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
+        
+    with t4:
+        # New Custom Date Range Picker
+        custom_dates = st.date_input("Custom Date Range", value=[], help="Select a start date and an end date")
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
     # Asset Selector Pills
@@ -256,17 +260,32 @@ if st.session_state.stellar_data:
 
     # Apply Filtering Logic
     filtered_df = df.copy()
+    
+    # Apply standard Month/Week filters
     if sel_month != "All Months":
         filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
     if sel_week != "All Weeks":
-        # Note: We now filter against the new week_label column
         filtered_df = filtered_df[filtered_df['week_label'] == sel_week]
     
+    # Apply Quick Tracker filter
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
+
+    # Apply Custom Date Range filter if dates are selected
+    if custom_dates:
+        # If the user has selected both a start and end date
+        if len(custom_dates) == 2:
+            start_dt = datetime.combine(custom_dates[0], datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(custom_dates[1], datetime.max.time()).replace(tzinfo=timezone.utc)
+            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_dt) & (filtered_df['timestamp'] <= end_dt)]
+        # If the user has only selected the start date (while waiting to click the end date)
+        elif len(custom_dates) == 1:
+            start_dt = datetime.combine(custom_dates[0], datetime.min.time()).replace(tzinfo=timezone.utc)
+            end_dt = datetime.combine(custom_dates[0], datetime.max.time()).replace(tzinfo=timezone.utc)
+            filtered_df = filtered_df[(filtered_df['timestamp'] >= start_dt) & (filtered_df['timestamp'] <= end_dt)]
 
     if not selected_assets:
         filtered_df = pd.DataFrame()
@@ -279,7 +298,7 @@ if st.session_state.stellar_data:
         st.info("Select at least one asset (DMMK or nUSDT) to view data.")
     elif filtered_df.empty:
         selected_str = " & ".join(selected_assets)
-        st.warning(f"No {selected_str} transactions found for the selected time period.")
+        st.warning(f"No {selected_str} transactions found for the selected filters.")
     else:
         # --- TRANSACTION TABLE ---
         display_df = filtered_df.copy()
