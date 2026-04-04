@@ -165,7 +165,7 @@ if run_btn and user_input:
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
 if st.session_state.display_name:
-    st.title(f"{st.session_state.display_name}*nugpay.app 👛")
+    st.title(f"{st.session_state.display_name}*nugpay.app 🪙")
 else:
     st.title("NUGpay User Analytics")
 
