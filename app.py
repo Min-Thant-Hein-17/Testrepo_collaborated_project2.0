@@ -165,69 +165,67 @@ if st.session_state.stellar_data:
     # --- INTERACTIVE FILTERS ---
     st.subheader("Interactive Filters")
     
-    t1, t2, t3 = st.columns(3)
+    col_filters, col_recency = st.columns([2, 1])
     
-    with t1:
-        available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
-        sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months)
-    
-    # Calculate days in selected month for the custom dropdowns
-    if sel_month != "All Months":
-        m_name, y_str = sel_month.split(" ")
-        m_idx = list(calendar.month_name).index(m_name)
-        _, max_days = calendar.monthrange(int(y_str), m_idx)
-    else:
-        max_days = 31
-
-    with t2:
-        if sel_month == "All Months":
-            sel_week = st.selectbox("Filter by Week", ["All Weeks"], disabled=True)
+    with col_filters:
+        f1, f2 = st.columns(2)
+        with f1:
+            available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
+            sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months)
+        
+        # Logic to determine max days for the month
+        if sel_month != "All Months":
+            m_name, y_str = sel_month.split(" ")
+            m_idx = list(calendar.month_name).index(m_name)
+            _, max_days = calendar.monthrange(int(y_str), m_idx)
         else:
-            dynamic_weeks = [
-                "1 - 7 (First Week)", 
-                "8 - 14 (Second Week)", 
-                "15 - 21 (Third Week)", 
-                f"22 - {max_days} (Fourth Week)"
-            ]
-            sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks)
+            max_days = 31
 
-    with t3:
+        with f2:
+            # We keep the week selector but it only works if Month is selected
+            if sel_month == "All Months":
+                sel_week = st.selectbox("Filter by Week", ["All Weeks"], disabled=True)
+            else:
+                dynamic_weeks = ["1 - 7 (First Week)", "8 - 14 (Second Week)", "15 - 21 (Third Week)", f"22 - {max_days} (Fourth Week)"]
+                sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks)
+
+        # Custom Day Range Row (Dropdowns)
+        st.write("**Filter by Day Range**")
+        d1, d2 = st.columns(2)
+        with d1:
+            start_day = st.selectbox("Start Date", options=range(1, max_days + 1), index=0)
+        with d2:
+            end_day = st.selectbox("End Date", options=range(1, max_days + 1), index=max_days - 1)
+
+    with col_recency:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
-
-    # --- CUSTOM DAY RANGE DROPDOWNS ---
-    # Only show if a specific month is selected
-    if sel_month != "All Months":
-        st.markdown("---")
-        st.write("**Filter by Day Range**")
-        d1, d2, _ = st.columns([1, 1, 1])
-        with d1:
-            start_day = st.selectbox("Start From", options=range(1, max_days + 1), index=0)
-        with d2:
-            end_day = st.selectbox("End To", options=range(1, max_days + 1), index=max_days - 1)
-        st.markdown("---")
 
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
     # --- APPLY FILTER LOGIC ---
     filtered_df = df.copy()
     
-    # Apply Month & Day Logic
+    # 1. Apply Month Filter
     if sel_month != "All Months":
         filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
         
-        # If a specific week is selected, use that range. Otherwise, use the custom Day Range dropdowns.
+        # 2. Prioritize Week Filter IF "All Weeks" isn't selected, otherwise use custom Day Range
         if sel_week != "All Weeks":
             bounds = sel_week.split(" (")[0].split(" - ")
             filtered_df = filtered_df[filtered_df['day'].between(int(bounds[0]), int(bounds[1]))]
         else:
+            # Apply the dropdown Start/End Date range
             filtered_df = filtered_df[filtered_df['day'].between(start_day, end_day)]
 
-    # Apply Recency
+    # 3. Apply Recency Logic
     now = datetime.now(timezone.utc)
-    if recency == "Last 7 Days": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
-    elif recency == "Last 24 Hours": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
+    if recency == "Last 7 Days": 
+        filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
+    elif recency == "Last 24 Hours": 
+        filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
+    # 4. Apply Asset Logic
     if not selected_assets:
         st.info("Select an asset to view data.")
     elif filtered_df.empty:
@@ -252,8 +250,10 @@ if st.session_state.stellar_data:
         st.subheader("Summary by Account")
         
         s1, s2 = st.columns([2, 1])
-        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"], format_func=lambda x: x.replace("_", " "))
-        sort_order = s2.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
+        with s1:
+            sort_metric = st.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"], format_func=lambda x: x.replace("_", " "))
+        with s2:
+            sort_order = st.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
         
         summary_df = filtered_df.copy()
         summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
@@ -265,11 +265,13 @@ if st.session_state.stellar_data:
         ).reset_index()
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         
+        # Sort logic
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
         disp_sum = account_summary.copy()
         disp_sum['Other Account'] = disp_sum.apply(create_link, axis=1)
-        for c in ['Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference']: disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
+        for c in ['Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference']: 
+            disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
         
         st.markdown(disp_sum[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
