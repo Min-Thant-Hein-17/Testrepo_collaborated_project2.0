@@ -69,12 +69,6 @@ if 'analysis_months' not in st.session_state:
     url_months = st.query_params.get("months")
     st.session_state.analysis_months = int(url_months) if (url_months and url_months.isdigit()) else 1
 
-# --- NAVIGATION MEMORY INITIALIZATION ---
-if 'history' not in st.session_state:
-    st.session_state.history = []  
-if 'history_index' not in st.session_state:
-    st.session_state.history_index = -1
-
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
     return analyze_stellar_account(target_id, months=months)
@@ -95,7 +89,7 @@ def fetch_balances(account_id):
         return dmmk, nusdt
     except Exception: return 0.0, 0.0
 
-def load_account_data(identifier, months, add_to_history=True):
+def load_account_data(identifier, months):
     with st.spinner(f"Resolving identity and fetching history for {identifier}..."):
         target_id = None
         current_name = identifier
@@ -115,52 +109,17 @@ def load_account_data(identifier, months, add_to_history=True):
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
                 st.query_params["months"] = str(months)
-                
-                # Logic to handle history updates
-                if add_to_history:
-                    # If we are navigating to something new, clear any 'forward' paths
-                    st.session_state.history = st.session_state.history[:st.session_state.history_index + 1]
-                    # Prevent duplicate entries in history
-                    if not st.session_state.history or st.session_state.history[-1][0] != target_id:
-                        st.session_state.history.append((target_id, current_name))
-                        st.session_state.history_index = len(st.session_state.history) - 1
                 return True
         st.error("Account details or transactions not found.")
         return False
 
-# --- IMPROVED URL & CLICK DETECTION ---
-# This ensures clicking a link in the table updates the history
+# URL Check
 target_from_url = st.query_params.get("target_account")
-if target_from_url and st.session_state.target_id != target_from_url:
-    # We load with add_to_history=True so clicks are remembered
-    load_account_data(target_from_url, st.session_state.analysis_months, add_to_history=True)
+if target_from_url and st.session_state.display_name != st.query_params.get("name"):
+    load_account_data(target_from_url, st.session_state.analysis_months)
 
-# 3. Sidebar Configuration
+# 3. Sidebar Configuration (RESTORED DYNAMIC LABELS)
 st.sidebar.header("Configuration")
-
-# --- NAVIGATION ARROWS ---
-st.sidebar.subheader("Navigation History")
-h_col1, h_col2 = st.sidebar.columns(2)
-
-# Back Arrow
-back_disabled = st.session_state.history_index <= 0
-if h_col1.button("⬅️ Back", disabled=back_disabled, use_container_width=True):
-    st.session_state.history_index -= 1
-    prev_id, prev_name = st.session_state.history[st.session_state.history_index]
-    # Use add_to_history=False so we don't create a loop in history
-    load_account_data(prev_id, st.session_state.analysis_months, add_to_history=False)
-    st.rerun()
-
-# Forward Arrow
-forward_disabled = st.session_state.history_index >= len(st.session_state.history) - 1
-if h_col2.button("Forward ➡️", disabled=forward_disabled, use_container_width=True):
-    st.session_state.history_index += 1
-    next_id, next_name = st.session_state.history[st.session_state.history_index]
-    load_account_data(next_id, st.session_state.analysis_months, add_to_history=False)
-    st.rerun()
-
-st.sidebar.divider()
-
 input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
 if input_method == "Account Name":
@@ -186,8 +145,6 @@ if col_side2.button("Clear Cache", use_container_width=True):
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
     st.session_state.target_id = "" 
-    st.session_state.history = []
-    st.session_state.history_index = -1
     st.query_params.clear()
     fetch_cached_analysis.clear()
     st.rerun()
@@ -307,6 +264,7 @@ if st.session_state.stellar_data:
         ).reset_index()
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         
+        # Sort logic fix applied
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
         disp_sum = account_summary.copy()
@@ -320,6 +278,8 @@ if st.session_state.stellar_data:
         ex_col1, ex_col2 = st.columns(2)
 
         with ex_col1:
+            # 1. Export Transaction History (The top table)
+            # We use filtered_df because it doesn't have the <a> tags from display_df
             history_csv = filtered_df[['timestamp', 'direction', 'other_account', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="⬇️ Export Transaction History (CSV)",
@@ -330,6 +290,7 @@ if st.session_state.stellar_data:
             )
 
         with ex_col2:
+            # 2. Export Account Summary (The bottom table)
             clean_sum = account_summary.rename(columns={
                 'other_account':'Other Account',
                 'asset':'Asset',
@@ -345,8 +306,10 @@ if st.session_state.stellar_data:
                 mime="text/csv",
                 use_container_width=True
             )
-        
-        st.markdown("---")
+
+        # --- FOOTER / BACK TO TOP ---
+        st.markdown('---')
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
+
 else:
     st.info("Enter an Account Name or Account ID in the sidebar to begin.")
