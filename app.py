@@ -306,5 +306,10 @@ if st.session_state.stellar_data:
                 mime="text/csv",
                 use_container_width=True
             )
+
+        # --- FOOTER / BACK TO TOP ---
+        st.markdown('---')
+        st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
+
 else:
     st.info("Enter an Account Name or Account ID in the sidebar to begin.")
