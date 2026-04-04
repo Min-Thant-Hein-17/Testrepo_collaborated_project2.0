@@ -195,6 +195,10 @@ else:
 
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
+    # Ensure timestamp is treated as a datetime object
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    # Create the unified Month-Year string for filtering (e.g. "April 2026")
+    df['month_year'] = df['timestamp'].dt.strftime('%B %Y')
 
     # --- KPI SECTION (CURRENT BALANCES) ---
     st.subheader("Current Balance")
@@ -212,13 +216,14 @@ if st.session_state.stellar_data:
     st.subheader("Interactive Filters")
     t1, t2, t3 = st.columns(3)
     with t1:
-        chronological_months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-        available_months = [m for m in chronological_months if m in df['month_name'].unique()]
+        # Get unique Month-Year values, sorted chronologically (newest first)
+        available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
         months_list = ["All Months"] + available_months
         sel_month = st.selectbox("Filter by Month", months_list)
         
     with t2:
-        temp_df = df if sel_month == "All Months" else df[df['month_name'] == sel_month]
+        # Apply the Month-Year filter before finding available weeks
+        temp_df = df if sel_month == "All Months" else df[df['month_year'] == sel_month]
         def extract_week(w):
             try: return int(w.replace("Week ", ""))
             except: return 0
@@ -241,7 +246,7 @@ if st.session_state.stellar_data:
     # Apply Filtering Logic
     filtered_df = df.copy()
     if sel_month != "All Months":
-        filtered_df = filtered_df[filtered_df['month_name'] == sel_month]
+        filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
     if sel_week != "All Weeks":
         filtered_df = filtered_df[filtered_df['week_num'] == sel_week]
     
