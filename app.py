@@ -71,6 +71,8 @@ if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
 if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
+if 'target_id' not in st.session_state:  # Added to track raw ID for the sidebar
+    st.session_state.target_id = ""
 if 'analysis_months' not in st.session_state:
     # Check if a timeframe is already present in the URL
     url_months = st.query_params.get("months")
@@ -100,9 +102,10 @@ def load_account_data(identifier, months):
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
+                st.session_state.target_id = target_id # Save the ID to state
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
-                st.query_params["months"] = str(months) # Save timeframe to URL
+                st.query_params["months"] = str(months)
                 return True
             else:
                 st.error("No transactions found.")
@@ -126,10 +129,19 @@ if target_from_url and st.session_state.display_name != name_from_url:
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
 
+# Update sidebar inputs to use session state values for auto-filling
 if input_method == "Username":
-    user_input = st.sidebar.text_input("Enter Name", placeholder="e.g. sithu")
+    user_input = st.sidebar.text_input(
+        "Enter Name", 
+        value=st.session_state.display_name, # Auto-fill name
+        placeholder="e.g. sithu"
+    )
 else:
-    user_input = st.sidebar.text_input("Enter Stellar ID", placeholder="G...")
+    user_input = st.sidebar.text_input(
+        "Enter Stellar ID", 
+        value=st.session_state.target_id,    # Auto-fill ID
+        placeholder="G..."
+    )
 
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
@@ -141,6 +153,7 @@ clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 if clear_btn:
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
+    st.session_state.target_id = "" # Clear ID state
     st.query_params.clear()
     fetch_cached_analysis.clear() 
     st.rerun()
@@ -229,7 +242,6 @@ if st.session_state.stellar_data:
         def create_html_link(row):
             safe_name = urllib.parse.quote(str(row['other_account']))
             current_months = st.session_state.analysis_months
-            # Inject the months parameter into the generated link
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={current_months}" target="_self">{row["other_account"]}</a>'
         
         display_df['Other Account'] = display_df.apply(create_html_link, axis=1)
