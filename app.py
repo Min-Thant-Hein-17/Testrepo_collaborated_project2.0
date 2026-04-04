@@ -35,7 +35,7 @@ if 'display_name' not in st.session_state: st.session_state.display_name = ""
 if 'target_id' not in st.session_state: st.session_state.target_id = ""
 if 'history_stack' not in st.session_state: st.session_state.history_stack = []
 
-# Persistent Filter States
+# Initialize filter states to maintain them across navigation
 if 'analysis_months' not in st.session_state:
     url_months = st.query_params.get("months")
     st.session_state.analysis_months = int(url_months) if (url_months and url_months.isdigit()) else 1
@@ -61,14 +61,14 @@ def fetch_balances(account_id):
     except Exception: return 0.0, 0.0
 
 def load_account_data(identifier, months, save_to_history=True):
-    # Save current account to history before switching
+    # If we are navigating to a NEW account, save the OLD one to the stack first
     if save_to_history and st.session_state.target_id and st.session_state.target_id != identifier:
         st.session_state.history_stack.append({
             "id": st.session_state.target_id,
             "name": st.session_state.display_name
         })
 
-    with st.spinner(f"Fetching history for {identifier}..."):
+    with st.spinner(f"Loading data for {identifier}..."):
         target_id = None
         current_name = identifier
         if identifier.startswith("G") and len(identifier) == 56:
@@ -84,19 +84,19 @@ def load_account_data(identifier, months, save_to_history=True):
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
                 st.session_state.target_id = target_id 
+                # Update query params without triggering a reload
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
                 st.query_params["months"] = str(months)
                 return True
-        st.error("Account details or transactions not found.")
         return False
 
-# URL / Back-nav Check
+# Trigger logic if URL contains a different account than current state
 target_from_url = st.query_params.get("target_account")
 if target_from_url and st.session_state.target_id != target_from_url:
     load_account_data(target_from_url, st.session_state.analysis_months, save_to_history=False)
 
-# 3. Sidebar
+# 3. Sidebar Configuration
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
@@ -111,6 +111,7 @@ st.session_state.analysis_months = analysis_months
 col_side1, col_side2 = st.sidebar.columns(2)
 if col_side1.button("Analyze Account", use_container_width=True) and user_input:
     load_account_data(user_input, analysis_months)
+
 if col_side2.button("Clear Cache", use_container_width=True):
     st.session_state.clear()
     st.query_params.clear()
@@ -120,12 +121,13 @@ if col_side2.button("Clear Cache", use_container_width=True):
 # 4. Main Dashboard
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
-# Navigation History Button
+# --- BACK NAVIGATION BUTTON ---
 if st.session_state.history_stack:
-    prev_account = st.session_state.history_stack[-1]
-    if st.button(f"← Back to {prev_account['name']}", use_container_width=False):
-        last = st.session_state.history_stack.pop()
-        load_account_data(last['id'], st.session_state.analysis_months, save_to_history=False)
+    prev = st.session_state.history_stack[-1]
+    if st.button(f"← Back to {prev['name']}", key="back_button"):
+        # Pop the last item and load it
+        last_item = st.session_state.history_stack.pop()
+        load_account_data(last_item['id'], st.session_state.analysis_months, save_to_history=False)
         st.rerun()
 
 if st.session_state.display_name:
@@ -157,29 +159,29 @@ if st.session_state.stellar_data:
     if filter_mode == "Standard (Month/Week)":
         with t1:
             available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
-            sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months, key="filter_month")
+            sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months, key="sel_month")
         with t2:
             if sel_month == "All Months":
                 sel_week = st.selectbox("Filter by Week", ["All Weeks"], disabled=True)
             else:
                 m_name, y_str = sel_month.split(" ")
                 m_idx = list(calendar.month_name).index(m_name)
-                _, last_day = calendar.monthrange(int(year_str), m_idx) if 'year_str' in locals() else calendar.monthrange(int(y_str), m_idx)
+                _, last_day = calendar.monthrange(int(y_str), m_idx)
                 dynamic_weeks = ["1 - 7 (First Week)", "8 - 14 (Second Week)", "15 - 21 (Third Week)", f"22 - {last_day} (Fourth Week)"]
-                sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks, key="filter_week")
+                sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks, key="sel_week")
     else:
         with t1:
-            date_range = st.date_input("Select Range", value=(df['timestamp'].min().date(), df['timestamp'].max().date()), key="filter_range")
+            date_range = st.date_input("Select Range", value=(df['timestamp'].min().date(), df['timestamp'].max().date()))
             if isinstance(date_range, tuple) and len(date_range) == 2:
                 start_date, end_date = date_range
 
     with t3:
-        recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True, key="filter_recency")
+        recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
-    selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi", key="filter_assets")
+    selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
-    # Apply Logic
+    # Filter Logic
     filtered_df = df.copy()
     if filter_mode == "Standard (Month/Week)":
         if sel_month != "All Months":
@@ -207,15 +209,15 @@ if st.session_state.stellar_data:
             safe_name = urllib.parse.quote(str(row['other_account']))
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
         
-        display_df['Other Account HTML'] = display_df.apply(create_link, axis=1)
+        display_df['Linked Account'] = display_df.apply(create_link, axis=1)
         display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
         
         st.write("**Transaction History**")
-        st.markdown(display_df[['Date/Time', 'direction', 'Other Account HTML', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Other Account HTML':'Other Account','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        st.markdown(display_df[['Date/Time', 'direction', 'Linked Account', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Linked Account':'Other Account','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
         
-        # Download History CSV
-        history_csv = filtered_df[['timestamp', 'direction', 'other_account', 'other_account_id', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
-        st.download_button("⬇️ Export Transaction History (CSV)", history_csv, f"{st.session_state.display_name}_history.csv", "text/csv")
+        # --- EXPORT TRANSACTION HISTORY ---
+        csv_history = filtered_df[['timestamp', 'direction', 'other_account', 'other_account_id', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
+        st.download_button("⬇️ Export Transaction History (CSV)", csv_history, f"{st.session_state.display_name}_transactions.csv", "text/csv")
 
         # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
@@ -235,16 +237,15 @@ if st.session_state.stellar_data:
             Total_Volume=('amount', 'sum'), Tx_Count=('amount', 'count')
         ).reset_index()
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
-        
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
         disp_sum = account_summary.copy()
-        disp_sum['Other Account HTML'] = disp_sum.apply(create_link, axis=1)
+        disp_sum['Linked Account'] = disp_sum.apply(create_link, axis=1)
         for c in ['Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference']: disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
         
-        st.markdown(disp_sum[['Other Account HTML', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'Other Account HTML':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        st.markdown(disp_sum[['Linked Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'Linked Account':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # Download Summary CSV
+        # --- EXPORT SUMMARY ---
         clean_sum = account_summary.rename(columns={'other_account':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'})
         st.download_button("⬇️ Export Account Summary (CSV)", clean_sum.to_csv(index=False).encode('utf-8'), f"{st.session_state.display_name}_summary.csv", "text/csv")
         
