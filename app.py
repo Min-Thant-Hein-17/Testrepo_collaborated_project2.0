@@ -72,7 +72,12 @@ if 'stellar_data' not in st.session_state:
 if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
 if 'analysis_months' not in st.session_state:
-    st.session_state.analysis_months = 1
+    # Check if a timeframe is already present in the URL
+    url_months = st.query_params.get("months")
+    if url_months and url_months.isdigit():
+        st.session_state.analysis_months = int(url_months)
+    else:
+        st.session_state.analysis_months = 1
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
@@ -97,6 +102,7 @@ def load_account_data(identifier, months):
                 st.session_state.display_name = current_name
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
+                st.query_params["months"] = str(months) # Save timeframe to URL
                 return True
             else:
                 st.error("No transactions found.")
@@ -107,8 +113,13 @@ def load_account_data(identifier, months):
 # URL Query Parameter Check
 target_from_url = st.query_params.get("target_account")
 name_from_url = st.query_params.get("name")
+months_from_url = st.query_params.get("months")
 
 if target_from_url and st.session_state.display_name != name_from_url:
+    # If navigating from a link, capture the timeframe from the URL
+    if months_from_url and months_from_url.isdigit():
+        st.session_state.analysis_months = int(months_from_url)
+    
     load_account_data(target_from_url, st.session_state.analysis_months)
 
 # 3. Sidebar Configuration
@@ -217,7 +228,9 @@ if st.session_state.stellar_data:
         
         def create_html_link(row):
             safe_name = urllib.parse.quote(str(row['other_account']))
-            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}" target="_self">{row["other_account"]}</a>'
+            current_months = st.session_state.analysis_months
+            # Inject the months parameter into the generated link
+            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={current_months}" target="_self">{row["other_account"]}</a>'
         
         display_df['Other Account'] = display_df.apply(create_html_link, axis=1)
         
