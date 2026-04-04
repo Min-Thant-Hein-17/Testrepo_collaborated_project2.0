@@ -244,7 +244,7 @@ if st.session_state.stellar_data:
         with s2:
             sort_order = st.radio("Order", ["Ascending", "Descending"], horizontal=True)
         
-        ascending_bool = (sort_order == "Descending")
+        ascending_bool = (sort_order == "Ascending")
 
         summary_df = filtered_df.copy()
         summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
