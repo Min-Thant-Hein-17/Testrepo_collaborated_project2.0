@@ -13,7 +13,7 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS for UI
+# Custom CSS
 st.markdown("""
 <style>
     html { scroll-behavior: smooth; }
@@ -23,9 +23,8 @@ st.markdown("""
     table.dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
     a.account-link { text-decoration: none; color: #1f77b4; font-weight: 600; }
     a.account-link:hover { text-decoration: underline; }
-    .subtle-jump { font-size: 0.85rem; color: #1f77b4 !important; text-decoration: none; border-bottom: 1px dashed #1f77b4; display: inline-block; margin-top: 5px; }
-    .back-top { font-size: 0.8rem; color: #aaa !important; text-decoration: none; float: right; }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
+    .back-btn-box { margin-bottom: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -34,10 +33,8 @@ if 'stellar_data' not in st.session_state: st.session_state.stellar_data = None
 if 'display_name' not in st.session_state: st.session_state.display_name = ""
 if 'target_id' not in st.session_state: st.session_state.target_id = ""
 if 'history_stack' not in st.session_state: st.session_state.history_stack = []
-
-if 'analysis_months' not in st.session_state:
-    url_months = st.query_params.get("months")
-    st.session_state.analysis_months = int(url_months) if (url_months and url_months.isdigit()) else 1
+if 'analysis_months' not in st.session_state: st.session_state.analysis_months = 1
+if 'last_nav_type' not in st.session_state: st.session_state.last_nav_type = "initial"
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def fetch_cached_analysis(target_id, months):
@@ -60,14 +57,13 @@ def fetch_balances(account_id):
     except Exception: return 0.0, 0.0
 
 def load_account_data(identifier, months, save_to_history=True):
-    # Save current account to history stack before loading the new one
+    # Before loading new, save the OLD state to history stack
     if save_to_history and st.session_state.target_id and st.session_state.target_id != identifier:
-        # Check to avoid duplicating the current page into the history
-        if not st.session_state.history_stack or st.session_state.history_stack[-1]['id'] != st.session_state.target_id:
-            st.session_state.history_stack.append({
-                "id": st.session_state.target_id,
-                "name": st.session_state.display_name
-            })
+        st.session_state.history_stack.append({
+            "id": st.session_state.target_id,
+            "name": st.session_state.display_name,
+            "months": st.session_state.analysis_months # Keep memory of previous timeframe
+        })
 
     with st.spinner(f"Resolving {identifier}..."):
         target_id = None
@@ -85,33 +81,38 @@ def load_account_data(identifier, months, save_to_history=True):
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
                 st.session_state.target_id = target_id 
+                st.session_state.analysis_months = months
+                # Sync URL Params
                 st.query_params["target_account"] = target_id
-                st.query_params["name"] = current_name
                 st.query_params["months"] = str(months)
                 return True
-        st.error("Account details not found.")
-        return False
+    return False
 
-# Detect if user clicked a blue link (URL changed via browser)
+# Detect URL clicks (Forward Navigation)
 url_target = st.query_params.get("target_account")
 if url_target and st.session_state.target_id != url_target:
-    load_account_data(url_target, st.session_state.analysis_months, save_to_history=True)
+    # Only treat as forward navigation if we didn't JUST click the back button
+    if st.session_state.last_nav_type != "back":
+        load_account_data(url_target, int(st.query_params.get("months", st.session_state.analysis_months)), save_to_history=True)
+    st.session_state.last_nav_type = "forward"
 
 # 3. Sidebar
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
-
 if input_method == "Account Name":
     user_input = st.sidebar.text_input("Enter Name", value=st.session_state.display_name)
 else:
     user_input = st.sidebar.text_input("Enter Account ID", value=st.session_state.target_id)
 
-analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
-st.session_state.analysis_months = analysis_months 
+# The timeframe slider - its value is tied to session state for memory
+analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, value=st.session_state.analysis_months)
 
 col_side1, col_side2 = st.sidebar.columns(2)
 if col_side1.button("Analyze Account", use_container_width=True) and user_input:
+    st.session_state.last_nav_type = "forward"
     load_account_data(user_input, analysis_months, save_to_history=True)
+    st.rerun()
+
 if col_side2.button("Clear Cache", use_container_width=True):
     st.session_state.clear()
     st.query_params.clear()
@@ -120,14 +121,14 @@ if col_side2.button("Clear Cache", use_container_width=True):
 # 4. Main Dashboard
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
-# Functional Back Button (internal to dashboard)
+# THE BACK BUTTON
 if st.session_state.history_stack:
     prev_node = st.session_state.history_stack[-1]
     if st.button(f"← Back to {prev_node['name']}", key="nav_back_btn"):
-        # Pop the last history item
+        st.session_state.last_nav_type = "back"
         last_item = st.session_state.history_stack.pop()
-        # Load it but set save_to_history=False to prevent loops
-        load_account_data(last_item['id'], st.session_state.analysis_months, save_to_history=False)
+        # Restore account AND the specific timeframe it was using
+        load_account_data(last_item['id'], last_item['months'], save_to_history=False)
         st.rerun()
 
 if st.session_state.display_name:
@@ -138,10 +139,8 @@ else:
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df['month_year'] = df['timestamp'].dt.strftime('%B %Y')
-    df['day'] = df['timestamp'].dt.day
-
-    # --- KPI SECTION ---
+    
+    # KPI SECTION
     st.subheader("Current Balance")
     d_bal, n_bal = fetch_balances(st.session_state.target_id)
     b1, b2, _ = st.columns([1, 1, 2])
@@ -149,55 +148,13 @@ if st.session_state.stellar_data:
     b2.metric("nUSDT", f"{n_bal:,.7f}")
     st.markdown("---")
 
-    # --- FILTERS ---
+    # FILTERS
     st.subheader("Interactive Filters")
-    f_mode = st.radio("Date Filter Mode", ["Standard (Month/Week)", "Custom Date Range"], horizontal=True)
-    
-    t1, t2, t3 = st.columns(3)
-    start_date, end_date = None, None
+    f_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
-    if f_mode == "Standard (Month/Week)":
-        with t1:
-            m_list = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
-            sel_m = st.selectbox("Filter by Month", ["All Months"] + m_list, key="m_sel")
-        with t2:
-            if sel_m == "All Months":
-                sel_w = st.selectbox("Filter by Week", ["All Weeks"], disabled=True)
-            else:
-                m_name, y_str = sel_m.split(" ")
-                m_idx = list(calendar.month_name).index(m_name)
-                _, last_day = calendar.monthrange(int(y_str), m_idx)
-                w_list = ["1 - 7 (First Week)", "8 - 14 (Second Week)", "15 - 21 (Third Week)", f"22 - {last_day} (Fourth Week)"]
-                sel_w = st.selectbox("Filter by Week", ["All Weeks"] + w_list, key="w_sel")
-    else:
-        with t1:
-            dr = st.date_input("Select Range", value=(df['timestamp'].min().date(), df['timestamp'].max().date()), key="d_sel")
-            if isinstance(dr, tuple) and len(dr) == 2: start_date, end_date = dr
+    f_df = df[df['asset'].isin(f_assets)].copy()
 
-    with t3:
-        rec = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True, key="q_sel")
-        st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
-
-    assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
-
-    # Filter Logic
-    f_df = df.copy()
-    if f_mode == "Standard (Month/Week)":
-        if sel_m != "All Months":
-            f_df = f_df[f_df['month_year'] == sel_m]
-            if sel_w != "All Weeks":
-                bounds = sel_w.split(" (")[0].split(" - ")
-                f_df = f_df[f_df['day'].between(int(bounds[0]), int(bounds[1]))]
-    elif start_date and end_date:
-        f_df = f_df[(f_df['timestamp'].dt.date >= start_date) & (f_df['timestamp'].dt.date <= end_date)]
-    
-    now = datetime.now(timezone.utc)
-    if rec == "Last 7 Days": f_df = f_df[f_df['timestamp'] >= (now - timedelta(days=7))]
-    elif rec == "Last 24 Hours": f_df = f_df[f_df['timestamp'] >= (now - timedelta(hours=24))]
-
-    if not assets:
-        st.info("Select an asset to view data.")
-    elif f_df.empty:
+    if f_df.empty:
         st.warning("No data found for this selection.")
     else:
         # --- TRANSACTION TABLE ---
@@ -206,6 +163,7 @@ if st.session_state.stellar_data:
         
         def create_link(row):
             q_name = urllib.parse.quote(str(row['other_account']))
+            # Passing current analysis_months in the URL so forward clicks also preserve timeframe
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={q_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
         
         disp['Other Account HTML'] = disp.apply(create_link, axis=1)
@@ -218,35 +176,20 @@ if st.session_state.stellar_data:
         csv_h = f_df[['timestamp', 'direction', 'other_account', 'other_account_id', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
         st.download_button("⬇️ Export History (CSV)", csv_h, f"{st.session_state.display_name}_history.csv", "text/csv")
 
-        # --- SUMMARY SECTION ---
-        st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
+        # SUMMARY SECTION
         st.markdown("---")
         st.subheader("Summary by Account")
         
-        s1, s2 = st.columns([2, 1])
-        s_met = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference"])
-        s_ord = s2.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
-        
-        f_df['In'] = f_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
-        f_df['Out'] = f_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
-
         summary = f_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
-            Outgoing=('Out', 'sum'), Incoming=('In', 'sum'),
             Total_Volume=('amount', 'sum'), Tx_Count=('amount', 'count')
-        ).reset_index()
-        summary['Net_Difference'] = summary['Incoming'] - summary['Outgoing']
-        summary = summary.sort_values(s_met, ascending=(s_ord == "Ascending")).head(10)
+        ).reset_index().sort_values('Tx_Count', ascending=False).head(10)
 
         disp_sum = summary.copy()
         disp_sum['Other Account HTML'] = disp_sum.apply(create_link, axis=1)
-        for c in ['Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference']: disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
+        for c in ['Total_Volume']: disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
         
-        st.markdown(disp_sum[['Other Account HTML', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'Other Account HTML':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        st.markdown(disp_sum[['Other Account HTML', 'asset', 'Total_Volume', 'Tx_Count']].rename(columns={'Other Account HTML':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # Download Summary CSV
-        csv_s = summary.to_csv(index=False).encode('utf-8')
-        st.download_button("⬇️ Export Summary (CSV)", csv_s, f"{st.session_state.display_name}_summary.csv", "text/csv")
-        
-        st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
+        st.markdown('<a href="#top-anchor">↑ Back to Top</a>', unsafe_allow_html=True)
 else:
-    st.info("Search for an account to get started.")
+    st.info("Search for an account to begin.")
