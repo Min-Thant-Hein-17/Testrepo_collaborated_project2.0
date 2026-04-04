@@ -118,22 +118,14 @@ target_from_url = st.query_params.get("target_account")
 if target_from_url and st.session_state.display_name != st.query_params.get("name"):
     load_account_data(target_from_url, st.session_state.analysis_months)
 
-# 3. Sidebar Configuration (RESTORED DYNAMIC LABELS)
+# 3. Sidebar Configuration
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
 if input_method == "Account Name":
-    user_input = st.sidebar.text_input(
-        "Enter Name", 
-        value=st.session_state.display_name, 
-        placeholder="e.g. sithu"
-    )
+    user_input = st.sidebar.text_input("Enter Name", value=st.session_state.display_name, placeholder="e.g. sithu")
 else:
-    user_input = st.sidebar.text_input(
-        "Enter Account ID", 
-        value=st.session_state.target_id, 
-        placeholder="G..."
-    )
+    user_input = st.sidebar.text_input("Enter Account ID", value=st.session_state.target_id, placeholder="G...")
 
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
@@ -172,58 +164,66 @@ if st.session_state.stellar_data:
 
     # --- INTERACTIVE FILTERS ---
     st.subheader("Interactive Filters")
-    filter_mode = st.radio("Date Filter Mode", ["Standard (Month/Week)", "Custom Date Range"], horizontal=True)
     
     t1, t2, t3 = st.columns(3)
-    start_date, end_date = None, None
-
-    if filter_mode == "Standard (Month/Week)":
-        with t1:
-            available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
-            sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months)
-        with t2:
-            if sel_month == "All Months":
-                sel_week = st.selectbox("Filter by Week", ["All Weeks"], disabled=True)
-            else:
-                month_name, year_str = sel_month.split(" ")
-                month_idx = list(calendar.month_name).index(month_name)
-                _, last_day = calendar.monthrange(int(year_str), month_idx)
-                
-                dynamic_weeks = [
-                    "1 - 7 (First Week)", 
-                    "8 - 14 (Second Week)", 
-                    "15 - 21 (Third Week)", 
-                    f"22 - {last_day} (Fourth Week)"
-                ]
-                sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks)
+    
+    with t1:
+        available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
+        sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months)
+    
+    # Calculate days in selected month for the custom dropdowns
+    if sel_month != "All Months":
+        m_name, y_str = sel_month.split(" ")
+        m_idx = list(calendar.month_name).index(m_name)
+        _, max_days = calendar.monthrange(int(y_str), m_idx)
     else:
-        with t1:
-            date_range = st.date_input(
-                "Select Range (Start to End)", 
-                value=(df['timestamp'].min().date(), df['timestamp'].max().date()),
-                min_value=df['timestamp'].min().date(),
-                max_value=df['timestamp'].max().date()
-            )
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                start_date, end_date = date_range
+        max_days = 31
+
+    with t2:
+        if sel_month == "All Months":
+            sel_week = st.selectbox("Filter by Week", ["All Weeks"], disabled=True)
+        else:
+            dynamic_weeks = [
+                "1 - 7 (First Week)", 
+                "8 - 14 (Second Week)", 
+                "15 - 21 (Third Week)", 
+                f"22 - {max_days} (Fourth Week)"
+            ]
+            sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks)
 
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
+    # --- CUSTOM DAY RANGE DROPDOWNS ---
+    # Only show if a specific month is selected
+    if sel_month != "All Months":
+        st.markdown("---")
+        st.write("**Filter by Day Range**")
+        d1, d2, _ = st.columns([1, 1, 1])
+        with d1:
+            start_day = st.selectbox("Start From", options=range(1, max_days + 1), index=0)
+        with d2:
+            end_day = st.selectbox("End To", options=range(1, max_days + 1), index=max_days - 1)
+        st.markdown("---")
+
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
-    # Apply Logic
+    # --- APPLY FILTER LOGIC ---
     filtered_df = df.copy()
-    if filter_mode == "Standard (Month/Week)":
-        if sel_month != "All Months":
-            filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
-            if sel_week != "All Weeks":
-                bounds = sel_week.split(" (")[0].split(" - ")
-                filtered_df = filtered_df[filtered_df['day'].between(int(bounds[0]), int(bounds[1]))]
-    elif start_date and end_date:
-        filtered_df = filtered_df[(filtered_df['timestamp'].dt.date >= start_date) & (filtered_df['timestamp'].dt.date <= end_date)]
     
+    # Apply Month & Day Logic
+    if sel_month != "All Months":
+        filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
+        
+        # If a specific week is selected, use that range. Otherwise, use the custom Day Range dropdowns.
+        if sel_week != "All Weeks":
+            bounds = sel_week.split(" (")[0].split(" - ")
+            filtered_df = filtered_df[filtered_df['day'].between(int(bounds[0]), int(bounds[1]))]
+        else:
+            filtered_df = filtered_df[filtered_df['day'].between(start_day, end_day)]
+
+    # Apply Recency
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
@@ -242,6 +242,7 @@ if st.session_state.stellar_data:
         
         display_df['Other Account'] = display_df.apply(create_link, axis=1)
         display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
+        
         st.write("**Transaction History**")
         st.markdown(display_df[['Date/Time', 'direction', 'Other Account', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
@@ -264,7 +265,6 @@ if st.session_state.stellar_data:
         ).reset_index()
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         
-        # Sort logic fix applied
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
         disp_sum = account_summary.copy()
