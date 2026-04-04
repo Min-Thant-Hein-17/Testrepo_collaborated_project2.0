@@ -110,7 +110,7 @@ def load_account_data(identifier, months):
             else:
                 st.error("No transactions found.")
         else:
-            st.error("Username or ID not found.")
+            st.error("Account Name or ID not found.")
         return False
 
 # URL Query Parameter Check
@@ -127,10 +127,10 @@ if target_from_url and st.session_state.display_name != name_from_url:
 
 # 3. Sidebar Configuration
 st.sidebar.header("Configuration")
-input_method = st.sidebar.radio("Search By", ["Username", "Account ID"])
+input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
 # Update sidebar inputs to use session state values for auto-filling
-if input_method == "Username":
+if input_method == "Account Name":
     user_input = st.sidebar.text_input(
         "Enter Name", 
         value=st.session_state.display_name, # Auto-fill name
@@ -165,7 +165,7 @@ if run_btn and user_input:
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 
 if st.session_state.display_name:
-    st.title(f"Dashboard: {st.session_state.display_name}")
+    st.title(f"{st.session_state.display_name}*nugpay.app 👛")
 else:
     st.title("NUGpay User Analytics")
 
@@ -304,4 +304,4 @@ if st.session_state.stellar_data:
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
         st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
-    st.info("Enter a Username or Account ID in the sidebar to begin.")
+    st.info("Enter an Account Name or Account ID in the sidebar to begin.")
