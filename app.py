@@ -71,7 +71,7 @@ if 'analysis_months' not in st.session_state:
 
 # --- NAVIGATION MEMORY INITIALIZATION ---
 if 'history' not in st.session_state:
-    st.session_state.history = []  # List of (account_id, name) tuples
+    st.session_state.history = []  
 if 'history_index' not in st.session_state:
     st.session_state.history_index = -1
 
@@ -116,11 +116,11 @@ def load_account_data(identifier, months, add_to_history=True):
                 st.query_params["name"] = current_name
                 st.query_params["months"] = str(months)
                 
-                # Update history memory
+                # Logic to handle history updates
                 if add_to_history:
-                    # Remove any "forward" history if we start a new branch
+                    # If we are navigating to something new, clear any 'forward' paths
                     st.session_state.history = st.session_state.history[:st.session_state.history_index + 1]
-                    # Don't add duplicate consecutive entries
+                    # Prevent duplicate entries in history
                     if not st.session_state.history or st.session_state.history[-1][0] != target_id:
                         st.session_state.history.append((target_id, current_name))
                         st.session_state.history_index = len(st.session_state.history) - 1
@@ -128,10 +128,12 @@ def load_account_data(identifier, months, add_to_history=True):
         st.error("Account details or transactions not found.")
         return False
 
-# URL Check
+# --- IMPROVED URL & CLICK DETECTION ---
+# This ensures clicking a link in the table updates the history
 target_from_url = st.query_params.get("target_account")
 if target_from_url and st.session_state.target_id != target_from_url:
-    load_account_data(target_from_url, st.session_state.analysis_months)
+    # We load with add_to_history=True so clicks are remembered
+    load_account_data(target_from_url, st.session_state.analysis_months, add_to_history=True)
 
 # 3. Sidebar Configuration
 st.sidebar.header("Configuration")
@@ -141,14 +143,17 @@ st.sidebar.subheader("Navigation History")
 h_col1, h_col2 = st.sidebar.columns(2)
 
 # Back Arrow
-if h_col1.button("⬅️ Back", disabled=(st.session_state.history_index <= 0), use_container_width=True):
+back_disabled = st.session_state.history_index <= 0
+if h_col1.button("⬅️ Back", disabled=back_disabled, use_container_width=True):
     st.session_state.history_index -= 1
     prev_id, prev_name = st.session_state.history[st.session_state.history_index]
+    # Use add_to_history=False so we don't create a loop in history
     load_account_data(prev_id, st.session_state.analysis_months, add_to_history=False)
     st.rerun()
 
 # Forward Arrow
-if h_col2.button("Forward ➡️", disabled=(st.session_state.history_index >= len(st.session_state.history) - 1), use_container_width=True):
+forward_disabled = st.session_state.history_index >= len(st.session_state.history) - 1
+if h_col2.button("Forward ➡️", disabled=forward_disabled, use_container_width=True):
     st.session_state.history_index += 1
     next_id, next_name = st.session_state.history[st.session_state.history_index]
     load_account_data(next_id, st.session_state.analysis_months, add_to_history=False)
@@ -302,7 +307,6 @@ if st.session_state.stellar_data:
         ).reset_index()
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         
-        # Sort logic fix applied
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
         disp_sum = account_summary.copy()
