@@ -138,7 +138,7 @@ if input_method == "Account Name":
     )
 else:
     user_input = st.sidebar.text_input(
-        "Enter Stellar ID", 
+        "Enter Account ID", 
         value=st.session_state.target_id,    # Auto-fill ID
         placeholder="G..."
     )
