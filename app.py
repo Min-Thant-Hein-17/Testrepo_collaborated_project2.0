@@ -195,10 +195,18 @@ else:
 
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
+    
     # Ensure timestamp is treated as a datetime object
     df['timestamp'] = pd.to_datetime(df['timestamp'])
+    
     # Create the unified Month-Year string for filtering (e.g. "April 2026")
     df['month_year'] = df['timestamp'].dt.strftime('%B %Y')
+
+    # Create the advanced week label with specific date ranges
+    # dt.weekday returns 0 for Monday and 6 for Sunday
+    df['week_start'] = df['timestamp'] - pd.to_timedelta(df['timestamp'].dt.weekday, unit='D')
+    df['week_end'] = df['week_start'] + pd.to_timedelta(6, unit='D')
+    df['week_label'] = df['week_num'] + " (" + df['week_start'].dt.strftime('%b %d') + " - " + df['week_end'].dt.strftime('%b %d') + ")"
 
     # --- KPI SECTION (CURRENT BALANCES) ---
     st.subheader("Current Balance")
@@ -224,10 +232,13 @@ if st.session_state.stellar_data:
     with t2:
         # Apply the Month-Year filter before finding available weeks
         temp_df = df if sel_month == "All Months" else df[df['month_year'] == sel_month]
+        
         def extract_week(w):
-            try: return int(w.replace("Week ", ""))
+            # Extracts just the number from a string like "Week 14 (Mar 30 - Apr 05)" for proper sorting
+            try: return int(w.split(" ")[1])
             except: return 0
-        available_weeks = sorted(temp_df['week_num'].unique().tolist(), key=extract_week)
+            
+        available_weeks = sorted(temp_df['week_label'].unique().tolist(), key=extract_week)
         weeks_list = ["All Weeks"] + available_weeks
         sel_week = st.selectbox("Filter by Week", weeks_list)
         
@@ -248,7 +259,8 @@ if st.session_state.stellar_data:
     if sel_month != "All Months":
         filtered_df = filtered_df[filtered_df['month_year'] == sel_month]
     if sel_week != "All Weeks":
-        filtered_df = filtered_df[filtered_df['week_num'] == sel_week]
+        # Note: We now filter against the new week_label column
+        filtered_df = filtered_df[filtered_df['week_label'] == sel_week]
     
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days":
@@ -291,7 +303,7 @@ if st.session_state.stellar_data:
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # Download Button for Transaction History (Clean Data without HTML links)
+        # Download Button for Transaction History 
         clean_tx_df = filtered_df.rename(columns={
             'timestamp': 'Date/Time',
             'direction': 'Direction',
@@ -357,7 +369,7 @@ if st.session_state.stellar_data:
         st.write(f"**Top 10 Accounts (Sorted by {sort_metric.replace('_', ' ')})**")
         st.markdown(disp_summary.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # Download Button for Summary Table (Clean Data without HTML links)
+        # Download Button for Summary Table
         clean_summary_df = account_summary.rename(columns={
             'other_account': 'Other Account',
             'asset': 'Asset',
