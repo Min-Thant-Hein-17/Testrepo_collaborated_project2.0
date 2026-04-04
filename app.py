@@ -273,10 +273,38 @@ if st.session_state.stellar_data:
         
         st.markdown(disp_sum[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
-        # Export
-        clean_sum = account_summary.rename(columns={'other_account':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'})
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button("⬇️ Export Account Summary (CSV)", clean_sum[['Other Account','Asset','Total Volume','Incoming','Outgoing','Net Balance','Tx Count']].to_csv(index=False).encode('utf-8'), f"{st.session_state.display_name}_summary.csv", "text/csv")
-        st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
+        # --- EXPORT SECTION ---
+        st.markdown("### Export Data")
+        ex_col1, ex_col2 = st.columns(2)
+
+        with ex_col1:
+            # 1. Export Transaction History (The top table)
+            # We use filtered_df because it doesn't have the <a> tags from display_df
+            history_csv = filtered_df[['timestamp', 'direction', 'other_account', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Export Transaction History (CSV)",
+                data=history_csv,
+                file_name=f"{st.session_state.display_name}_history.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        with ex_col2:
+            # 2. Export Account Summary (The bottom table)
+            clean_sum = account_summary.rename(columns={
+                'other_account':'Other Account',
+                'asset':'Asset',
+                'Total_Volume':'Total Volume',
+                'Net_Difference':'Net Balance',
+                'Tx_Count':'Tx Count'
+            })
+            summary_csv = clean_sum[['Other Account','Asset','Total Volume','Incoming','Outgoing','Net Balance','Tx Count']].to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Export Account Summary (CSV)",
+                data=summary_csv,
+                file_name=f"{st.session_state.display_name}_summary.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
 else:
     st.info("Enter an Account Name or Account ID in the sidebar to begin.")
