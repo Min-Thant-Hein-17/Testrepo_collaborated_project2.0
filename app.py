@@ -71,7 +71,7 @@ if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
 if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
-if 'target_id' not in st.session_state:  # Added to track raw ID for the sidebar
+if 'target_id' not in st.session_state:
     st.session_state.target_id = ""
 if 'analysis_months' not in st.session_state:
     # Check if a timeframe is already present in the URL
@@ -102,7 +102,7 @@ def load_account_data(identifier, months):
             if data:
                 st.session_state.stellar_data = data
                 st.session_state.display_name = current_name
-                st.session_state.target_id = target_id # Save the ID to state
+                st.session_state.target_id = target_id 
                 st.query_params["target_account"] = target_id
                 st.query_params["name"] = current_name
                 st.query_params["months"] = str(months)
@@ -119,7 +119,6 @@ name_from_url = st.query_params.get("name")
 months_from_url = st.query_params.get("months")
 
 if target_from_url and st.session_state.display_name != name_from_url:
-    # If navigating from a link, capture the timeframe from the URL
     if months_from_url and months_from_url.isdigit():
         st.session_state.analysis_months = int(months_from_url)
     
@@ -129,17 +128,16 @@ if target_from_url and st.session_state.display_name != name_from_url:
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
-# Update sidebar inputs to use session state values for auto-filling
 if input_method == "Account Name":
     user_input = st.sidebar.text_input(
         "Enter Name", 
-        value=st.session_state.display_name, # Auto-fill name
+        value=st.session_state.display_name, 
         placeholder="e.g. sithu"
     )
 else:
     user_input = st.sidebar.text_input(
         "Enter Account ID", 
-        value=st.session_state.target_id,    # Auto-fill ID
+        value=st.session_state.target_id,    
         placeholder="G..."
     )
 
@@ -153,7 +151,7 @@ clear_btn = col_side2.button("Clear Cache", use_container_width=True)
 if clear_btn:
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
-    st.session_state.target_id = "" # Clear ID state
+    st.session_state.target_id = "" 
     st.query_params.clear()
     fetch_cached_analysis.clear() 
     st.rerun()
@@ -192,10 +190,8 @@ if st.session_state.stellar_data:
         
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
-        # Subtle Jump Link placed directly under Quick Tracker
         st.markdown('<a href="#summary-section" class="subtle-jump">Jump to Account Summary</a>', unsafe_allow_html=True)
 
-    # Asset Selector Pills
     selected_assets = st.pills(
         "Filter Assets", 
         options=["DMMK", "nUSDT"], 
@@ -216,7 +212,6 @@ if st.session_state.stellar_data:
     elif recency == "Last 24 Hours":
         filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
-    # Filter by Asset Selection
     if not selected_assets:
         filtered_df = pd.DataFrame()
     else:
@@ -251,13 +246,21 @@ if st.session_state.stellar_data:
 
         st.write("**Transaction History**")
         st.markdown(display_tx_df.to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        
+        # Add spacing and CSV export button right under the table
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.download_button(
+            label="📥 Export Transaction History (CSV)", 
+            data=filtered_df.to_csv(index=False).encode('utf-8'), 
+            file_name=f"{st.session_state.display_name}_transactions.csv",
+            mime="text/csv"
+        )
 
         # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
         
-        # Sorting Controls
         s1, s2 = st.columns([2, 1])
         with s1:
             sort_metric = st.selectbox(
@@ -285,7 +288,6 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=ascending_bool).head(10)
 
-        # Format Summary Table
         disp_summary = account_summary.copy()
         disp_summary['Other Account Link'] = disp_summary.apply(create_html_link, axis=1)
         disp_summary['Total Volume'] = disp_summary['Total_Volume'].apply(lambda x: f"{x:,.2f}")
@@ -302,6 +304,5 @@ if st.session_state.stellar_data:
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
-        st.download_button("Export CSV", filtered_df.to_csv(index=False).encode('utf-8'), "nugpay_report.csv")
 else:
     st.info("Enter an Account Name or Account ID in the sidebar to begin.")
