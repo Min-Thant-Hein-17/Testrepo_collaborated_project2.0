@@ -242,7 +242,7 @@ if st.session_state.stellar_data:
                 format_func=lambda x: x.replace("_", " ")
             )
         with s2:
-            sort_order = st.radio("Order", ["Descending", "Ascending"], horizontal=True)
+            sort_order = st.radio("Order", ["Ascending", "Descending"], horizontal=True)
         
         ascending_bool = (sort_order == "Descending")
 
