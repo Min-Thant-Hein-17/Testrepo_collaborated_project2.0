@@ -13,33 +13,44 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS for table styling and grid lines
+# Custom CSS for table styling, grid lines, and navigation
 st.markdown("""
 <style>
     html { scroll-behavior: smooth; }
     
     /* Mimic table grid lines for column-based rows */
-    .detail-row {
-        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
-        padding: 10px 5px;
+    .detail-row, .header-row {
+        border-bottom: 1px solid rgba(128, 128, 128, 0.3);
         display: flex;
         align-items: center;
+        min-height: 50px;
     }
     
+    /* Vertical lines using column borders */
+    [data-testid="column"] {
+        border-right: 1px solid rgba(128, 128, 128, 0.3);
+        padding: 5px 12px !important;
+    }
+    
+    /* Remove last vertical line in a row */
+    [data-testid="column"]:last-child {
+        border-right: none;
+    }
+
     .header-row {
-        border-bottom: 2px solid rgba(128, 128, 128, 0.4);
-        padding: 10px 5px;
+        background-color: rgba(128, 128, 128, 0.05);
+        border-top: 1px solid rgba(128, 128, 128, 0.3);
         font-weight: 600;
         font-size: 14px;
         color: rgba(128, 128, 128, 0.8);
     }
 
-    .account-link {
+    a.account-link {
         text-decoration: none;
         color: #1f77b4;
         font-weight: 600;
     }
-    .account-link:hover { text-decoration: underline; }
+    a.account-link:hover { text-decoration: underline; }
     
     .subtle-jump {
         font-size: 0.85rem;
@@ -71,7 +82,6 @@ def show_account_details(account_name, account_id, asset, df_context):
     detail_df['Date/Time'] = detail_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
     detail_df['Amount'] = detail_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
     
-    # Using standard table inside dialog for cleaner look
     st.table(detail_df[['Date/Time', 'direction', 'Amount', 'asset']].rename(columns={'direction': 'Direction', 'asset': 'Asset'}))
     
     if st.button("Close"):
@@ -84,6 +94,8 @@ if 'display_name' not in st.session_state:
     st.session_state.display_name = ""
 if 'target_id' not in st.session_state:  
     st.session_state.target_id = ""
+if 'history' not in st.session_state:
+    st.session_state.history = []  # Stack for backward navigation
 if 'analysis_months' not in st.session_state:
     url_months = st.query_params.get("months")
     st.session_state.analysis_months = int(url_months) if (url_months and url_months.isdigit()) else 1
@@ -108,7 +120,14 @@ def fetch_balances(account_id):
         return dmmk, nusdt
     except Exception: return 0.0, 0.0
 
-def load_account_data(identifier, months):
+def load_account_data(identifier, months, save_to_history=True):
+    # Save current state to history before loading new one
+    if save_to_history and st.session_state.target_id:
+        st.session_state.history.append({
+            "id": st.session_state.target_id,
+            "name": st.session_state.display_name
+        })
+
     with st.spinner(f"Resolving identity and fetching history for {identifier}..."):
         target_id = None
         current_name = identifier
@@ -134,8 +153,8 @@ def load_account_data(identifier, months):
 
 # URL Check
 target_from_url = st.query_params.get("target_account")
-if target_from_url and st.session_state.display_name != st.query_params.get("name"):
-    load_account_data(target_from_url, st.session_state.analysis_months)
+if target_from_url and st.session_state.target_id != target_from_url:
+    load_account_data(target_from_url, st.session_state.analysis_months, save_to_history=False)
 
 # 3. Sidebar Configuration
 st.sidebar.header("Configuration")
@@ -156,12 +175,21 @@ if col_side2.button("Clear Cache", use_container_width=True):
     st.session_state.stellar_data = None
     st.session_state.display_name = ""
     st.session_state.target_id = "" 
+    st.session_state.history = []
     st.query_params.clear()
     fetch_cached_analysis.clear()
     st.rerun()
 
 # 4. Main Dashboard
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
+
+# Backward Button Row
+if st.session_state.history:
+    if st.button(f"← Back to {st.session_state.history[-1]['name']}"):
+        prev = st.session_state.history.pop()
+        load_account_data(prev['id'], st.session_state.analysis_months, save_to_history=False)
+        st.rerun()
+
 if st.session_state.display_name:
     st.title(f"{st.session_state.display_name}*nugpay.app 🪙")
 else:
@@ -212,7 +240,6 @@ if st.session_state.stellar_data:
 
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
-    # Apply Logic
     filtered_df = df.copy()
     if filter_mode == "Standard (Month/Week)":
         if sel_month != "All Months":
@@ -233,8 +260,6 @@ if st.session_state.stellar_data:
     else:
         # --- TRANSACTION HISTORY ---
         st.write("**Transaction History**")
-        
-        # Header with grid look
         st.markdown('<div class="header-row">', unsafe_allow_html=True)
         h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 2, 1, 1, 1])
         h1.write("Date/Time")
@@ -251,6 +276,7 @@ if st.session_state.stellar_data:
             r1.write(row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'))
             r2.write(row['direction'])
             
+            # Clickable link triggers history save logic via URL check
             safe_name = urllib.parse.quote(str(row['other_account']))
             link_html = f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
             r3.markdown(link_html, unsafe_allow_html=True)
@@ -282,7 +308,6 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # Header with grid look
         st.markdown('<div class="header-row">', unsafe_allow_html=True)
         hcol1, hcol2, hcol3, hcol4, hcol5, hcol6, hcol7, hcol8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
         hcol1.write("Other Account")
