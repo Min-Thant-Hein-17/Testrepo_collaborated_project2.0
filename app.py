@@ -34,22 +34,6 @@ st.markdown("""
         font-weight: 600;
     }
     table.dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
-    
-    /* New Grid Line Styles for Column-based rows */
-    .detail-row {
-        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
-        padding: 10px 5px;
-        display: flex;
-        align-items: center;
-    }
-    .header-row {
-        border-bottom: 2px solid rgba(128, 128, 128, 0.4);
-        padding: 10px 5px;
-        font-weight: 600;
-        font-size: 14px;
-        color: rgba(128, 128, 128, 0.8);
-    }
-
     a.account-link {
         text-decoration: none;
         color: #1f77b4;
@@ -73,25 +57,6 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
 </style>
 """, unsafe_allow_html=True)
-
-# --- NEW DIALOG FUNCTION ---
-@st.dialog("Account Transaction Details", width="large")
-def show_account_details(account_name, account_id, asset, df_context):
-    """Displays a modal with specific transactions for a chosen account."""
-    st.write(f"Showing **{asset}** transactions for: **{account_name}**")
-    st.caption(f"ID: {account_id}")
-    
-    # Filter for this specific account and asset
-    detail_df = df_context[(df_context['other_account_id'] == account_id) & (df_context['asset'] == asset)].copy()
-    detail_df = detail_df.sort_values('timestamp', ascending=False)
-    
-    detail_df['Date/Time'] = detail_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    detail_df['Amount'] = detail_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
-    
-    st.table(detail_df[['Date/Time', 'direction', 'Amount', 'asset']].rename(columns={'direction': 'Direction', 'asset': 'Asset'}))
-    
-    if st.button("Close"):
-        st.rerun()
 
 # 2. Session State Initialization
 if 'stellar_data' not in st.session_state:
@@ -147,6 +112,20 @@ def load_account_data(identifier, months):
                 return True
         st.error("Account details or transactions not found.")
         return False
+
+@st.dialog("Account Transaction Details", width="large")
+def show_account_details(other_account_id, other_account_name, transactions):
+    st.write(f"### Transactions with: **{other_account_name}**")
+    st.caption(f"ID: {other_account_id}")
+    
+    detail_df = transactions[transactions['other_account_id'] == other_account_id].copy()
+    detail_df['Date/Time'] = detail_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    detail_df['Amount_Disp'] = detail_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
+    
+    st.markdown(detail_df[['Date/Time', 'direction', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+    
+    if st.button("Close"):
+        st.rerun()
 
 # URL Check
 target_from_url = st.query_params.get("target_account")
@@ -262,43 +241,40 @@ if st.session_state.stellar_data:
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
-    filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
 
-    if filtered_df.empty:
+    if not selected_assets:
+        st.info("Select an asset to view data.")
+    elif filtered_df.empty:
         st.warning("No data found for this selection.")
     else:
-        # --- TRANSACTION HISTORY ---
+        # --- TRANSACTION TABLE ---
+        display_df = filtered_df.copy()
+        display_df['Date/Time'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        def create_link(row):
+            safe_name = urllib.parse.quote(str(row['other_account']))
+            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
+        
+        display_df['Other Account'] = display_df.apply(create_link, axis=1)
+        display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
+        
         st.write("**Transaction History**")
         
-        # Grid Header
-        st.markdown('<div class="header-row">', unsafe_allow_html=True)
-        h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 2, 1, 1, 1])
-        h1.write("Date/Time")
-        h2.write("Direction")
-        h3.write("Other Account")
-        h4.write("Amount")
-        h5.write("Asset")
-        h6.write("Details")
-        st.markdown('</div>', unsafe_allow_html=True)
+        # Header Row
+        cols = st.columns([1.5, 1, 2, 1, 1, 0.8])
+        fields = ['Date/Time', 'Direction', 'Other Account', 'Amount', 'Asset', 'Details']
+        for col, field in zip(cols, fields):
+            col.markdown(f"**{field}**")
 
-        # Grid Body
-        for idx, row in filtered_df.iterrows():
-            st.markdown('<div class="detail-row">', unsafe_allow_html=True)
-            r1, r2, r3, r4, r5, r6 = st.columns([2, 1, 2, 1, 1, 1])
-            r1.write(row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'))
-            r2.write(row['direction'])
-            
-            safe_name = urllib.parse.quote(str(row['other_account']))
-            link_html = f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
-            r3.markdown(link_html, unsafe_allow_html=True)
-            
-            amt_fmt = f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
-            r4.write(amt_fmt)
-            r5.write(row['asset'])
-            
-            if r6.button("View", key=f"hist_{idx}", use_container_width=True):
-                show_account_details(row['other_account'], row['other_account_id'], row['asset'], df)
-            st.markdown('</div>', unsafe_allow_html=True)
+        # Data Rows
+        for i, row in display_df.iterrows():
+            c1, c2, c3, c4, c5, c6 = st.columns([1.5, 1, 2, 1, 1, 0.8])
+            c1.write(row['Date/Time'])
+            c2.write(row['direction'])
+            c3.markdown(row['Other Account'], unsafe_allow_html=True)
+            c4.write(row['Amount_Disp'])
+            c5.write(row['asset'])
+            if c6.button("View", key=f"btn_{i}"):
+                show_account_details(row['other_account_id'], row['other_account'], df)
 
         # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
@@ -321,35 +297,11 @@ if st.session_state.stellar_data:
         
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # Grid Header
-        st.markdown('<div class="header-row">', unsafe_allow_html=True)
-        hcol1, hcol2, hcol3, hcol4, hcol5, hcol6, hcol7, hcol8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
-        hcol1.write("Other Account")
-        hcol2.write("Asset")
-        hcol3.write("Total Volume")
-        hcol4.write("Incoming")
-        hcol5.write("Outgoing")
-        hcol6.write("Net Balance")
-        hcol7.write("Tx Count")
-        hcol8.write("Details")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # Grid Body
-        for idx, row in account_summary.iterrows():
-            st.markdown('<div class="detail-row">', unsafe_allow_html=True)
-            rc1, rc2, rc3, rc4, rc5, rc6, rc7, rc8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
-            safe_name = urllib.parse.quote(str(row['other_account']))
-            rc1.markdown(f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>', unsafe_allow_html=True)
-            rc2.write(row['asset'])
-            rc3.write(f"{row['Total_Volume']:,.2f}")
-            rc4.write(f"{row['Incoming']:,.2f}")
-            rc5.write(f"{row['Outgoing']:,.2f}")
-            rc6.write(f"{row['Net_Difference']:,.2f}")
-            rc7.write(str(row['Tx_Count']))
-            
-            if rc8.button("View", key=f"sum_{idx}", use_container_width=True):
-                show_account_details(row['other_account'], row['other_account_id'], row['asset'], df)
-            st.markdown('</div>', unsafe_allow_html=True)
+        disp_sum = account_summary.copy()
+        disp_sum['Other Account'] = disp_sum.apply(create_link, axis=1)
+        for c in ['Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference']: disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
+        
+        st.markdown(disp_sum[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         # --- EXPORT SECTION ---
         st.markdown("### Export Data")
