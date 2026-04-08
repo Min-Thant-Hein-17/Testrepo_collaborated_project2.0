@@ -13,16 +13,35 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS for table styling and subtle navigation
+# Custom CSS for table styling, grid lines, and subtle navigation
 st.markdown("""
 <style>
     html { scroll-behavior: smooth; }
+    
+    /* Replicating original table styling for the header */
+    .table-header {
+        font-size: 14px;
+        color: rgba(128, 128, 128, 0.8);
+        font-weight: 600;
+        padding: 10px 0;
+        border-bottom: 2px solid rgba(128, 128, 128, 0.3);
+        margin-bottom: 8px;
+    }
+
+    /* Grid lines for each row */
+    .row-divider {
+        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        padding: 8px 0;
+        align-items: center;
+    }
+
     .account-link {
         text-decoration: none;
         color: #1f77b4;
         font-weight: 600;
     }
     .account-link:hover { text-decoration: underline; }
+
     .subtle-jump {
         font-size: 0.85rem;
         color: #1f77b4 !important;
@@ -38,15 +57,10 @@ st.markdown("""
         float: right;
     }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
-    /* Formatting for custom column "rows" */
-    .row-divider {
-        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
-        padding: 5px 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# --- NEW DIALOG FUNCTION ---
+# --- DIALOG FUNCTION ---
 @st.dialog("Transaction Details", width="large")
 def show_account_details(account_name, account_id, asset, df_context):
     """Displays a modal with specific transactions for a chosen account."""
@@ -220,8 +234,9 @@ if st.session_state.stellar_data:
     if filtered_df.empty:
         st.warning("No data found for this selection.")
     else:
-        # --- TRANSACTION HISTORY (With Buttons) ---
+        # --- TRANSACTION HISTORY WITH GRID LINES ---
         st.write("**Transaction History**")
+        st.markdown('<div class="table-header">', unsafe_allow_html=True)
         h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 2, 1, 1, 1])
         h1.write("**Date/Time**")
         h2.write("**Direction**")
@@ -229,8 +244,10 @@ if st.session_state.stellar_data:
         h4.write("**Amount**")
         h5.write("**Asset**")
         h6.write("**Details**")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         for idx, row in filtered_df.iterrows():
+            st.markdown('<div class="row-divider">', unsafe_allow_html=True)
             r1, r2, r3, r4, r5, r6 = st.columns([2, 1, 2, 1, 1, 1])
             r1.write(row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'))
             r2.write(row['direction'])
@@ -242,16 +259,17 @@ if st.session_state.stellar_data:
             amt_fmt = f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
             r4.write(amt_fmt)
             r5.write(row['asset'])
-            if r6.button("View", key=f"hist_{idx}"):
+            if r6.button("View", key=f"hist_{idx}", use_container_width=True):
                 show_account_details(row['other_account'], row['other_account_id'], row['asset'], df)
+            st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- SUMMARY SECTION (With Buttons) ---
+        # --- SUMMARY SECTION WITH GRID LINES ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
         
         s1, s2 = st.columns([2, 1])
-        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"])
+        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"], format_func=lambda x: x.replace("_", " "))
         sort_order = s2.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
         
         summary_df = filtered_df.copy()
@@ -265,6 +283,7 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
+        st.markdown('<div class="table-header">', unsafe_allow_html=True)
         hcol1, hcol2, hcol3, hcol4, hcol5, hcol6, hcol7, hcol8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
         hcol1.write("**Other Account**")
         hcol2.write("**Asset**")
@@ -274,8 +293,10 @@ if st.session_state.stellar_data:
         hcol6.write("**Net Balance**")
         hcol7.write("**Tx Count**")
         hcol8.write("**Details**")
+        st.markdown('</div>', unsafe_allow_html=True)
 
         for idx, row in account_summary.iterrows():
+            st.markdown('<div class="row-divider">', unsafe_allow_html=True)
             rc1, rc2, rc3, rc4, rc5, rc6, rc7, rc8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
             safe_name = urllib.parse.quote(str(row['other_account']))
             rc1.markdown(f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>', unsafe_allow_html=True)
@@ -285,8 +306,9 @@ if st.session_state.stellar_data:
             rc5.write(f"{row['Outgoing']:,.2f}")
             rc6.write(f"{row['Net_Difference']:,.2f}")
             rc7.write(str(row['Tx_Count']))
-            if rc8.button("View", key=f"sum_{idx}"):
+            if rc8.button("View", key=f"sum_{idx}", use_container_width=True):
                 show_account_details(row['other_account'], row['other_account_id'], row['asset'], df)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         # --- EXPORT SECTION ---
         st.markdown("### Export Data")
