@@ -13,34 +13,33 @@ from stellar_logic import (
 # 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS for table styling and grid lines
+# Custom CSS for table styling and subtle navigation
 st.markdown("""
 <style>
     html { scroll-behavior: smooth; }
-    
-    /* Mimic table grid lines for column-based rows */
-    .detail-row {
-        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
-        padding: 10px 5px;
-        display: flex;
-        align-items: center;
+    table.dataframe {
+        width: 100%;
+        border-collapse: collapse;
+        border: none;
+        font-family: sans-serif;
     }
-    
-    .header-row {
-        border-bottom: 2px solid rgba(128, 128, 128, 0.4);
-        padding: 10px 5px;
-        font-weight: 600;
+    table.dataframe th, table.dataframe td {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+        text-align: left;
+    }
+    table.dataframe th {
         font-size: 14px;
         color: rgba(128, 128, 128, 0.8);
+        font-weight: 600;
     }
-
-    .account-link {
+    table.dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
+    a.account-link {
         text-decoration: none;
         color: #1f77b4;
         font-weight: 600;
     }
-    .account-link:hover { text-decoration: underline; }
-    
+    a.account-link:hover { text-decoration: underline; }
     .subtle-jump {
         font-size: 0.85rem;
         color: #1f77b4 !important;
@@ -58,24 +57,6 @@ st.markdown("""
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
 </style>
 """, unsafe_allow_html=True)
-
-# --- DIALOG FUNCTION ---
-@st.dialog("Transaction Details", width="large")
-def show_account_details(account_name, account_id, asset, df_context):
-    st.write(f"Showing **{asset}** transactions for: **{account_name}**")
-    st.caption(f"ID: {account_id}")
-    
-    detail_df = df_context[(df_context['other_account_id'] == account_id) & (df_context['asset'] == asset)].copy()
-    detail_df = detail_df.sort_values('timestamp', ascending=False)
-    
-    detail_df['Date/Time'] = detail_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    detail_df['Amount'] = detail_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
-    
-    # Using standard table inside dialog for cleaner look
-    st.table(detail_df[['Date/Time', 'direction', 'Amount', 'asset']].rename(columns={'direction': 'Direction', 'asset': 'Asset'}))
-    
-    if st.button("Close"):
-        st.rerun()
 
 # 2. Session State Initialization
 if 'stellar_data' not in st.session_state:
@@ -137,14 +118,22 @@ target_from_url = st.query_params.get("target_account")
 if target_from_url and st.session_state.display_name != st.query_params.get("name"):
     load_account_data(target_from_url, st.session_state.analysis_months)
 
-# 3. Sidebar Configuration
+# 3. Sidebar Configuration (RESTORED DYNAMIC LABELS)
 st.sidebar.header("Configuration")
 input_method = st.sidebar.radio("Search By", ["Account Name", "Account ID"])
 
 if input_method == "Account Name":
-    user_input = st.sidebar.text_input("Enter Name", value=st.session_state.display_name, placeholder="e.g. sithu")
+    user_input = st.sidebar.text_input(
+        "Enter Name", 
+        value=st.session_state.display_name, 
+        placeholder="e.g. sithu"
+    )
 else:
-    user_input = st.sidebar.text_input("Enter Account ID", value=st.session_state.target_id, placeholder="G...")
+    user_input = st.sidebar.text_input(
+        "Enter Account ID", 
+        value=st.session_state.target_id, 
+        placeholder="G..."
+    )
 
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
@@ -184,6 +173,7 @@ if st.session_state.stellar_data:
     # --- INTERACTIVE FILTERS ---
     st.subheader("Interactive Filters")
     filter_mode = st.radio("Date Filter Mode", ["Standard (Month/Week)", "Custom Date Range"], horizontal=True)
+    
     t1, t2, t3 = st.columns(3)
     start_date, end_date = None, None
 
@@ -198,11 +188,22 @@ if st.session_state.stellar_data:
                 month_name, year_str = sel_month.split(" ")
                 month_idx = list(calendar.month_name).index(month_name)
                 _, last_day = calendar.monthrange(int(year_str), month_idx)
-                dynamic_weeks = ["1 - 7 (First Week)", "8 - 14 (Second Week)", "15 - 21 (Third Week)", f"22 - {last_day} (Fourth Week)"]
+                
+                dynamic_weeks = [
+                    "1 - 7 (First Week)", 
+                    "8 - 14 (Second Week)", 
+                    "15 - 21 (Third Week)", 
+                    f"22 - {last_day} (Fourth Week)"
+                ]
                 sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks)
     else:
         with t1:
-            date_range = st.date_input("Select Range", value=(df['timestamp'].min().date(), df['timestamp'].max().date()))
+            date_range = st.date_input(
+                "Select Range (Start to End)", 
+                value=(df['timestamp'].min().date(), df['timestamp'].max().date()),
+                min_value=df['timestamp'].min().date(),
+                max_value=df['timestamp'].max().date()
+            )
             if isinstance(date_range, tuple) and len(date_range) == 2:
                 start_date, end_date = date_range
 
@@ -226,41 +227,23 @@ if st.session_state.stellar_data:
     now = datetime.now(timezone.utc)
     if recency == "Last 7 Days": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
-    filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
 
-    if filtered_df.empty:
+    if not selected_assets:
+        st.info("Select an asset to view data.")
+    elif filtered_df.empty:
         st.warning("No data found for this selection.")
     else:
-        # --- TRANSACTION HISTORY ---
-        st.write("**Transaction History**")
-        
-        # Header with grid look
-        st.markdown('<div class="header-row">', unsafe_allow_html=True)
-        h1, h2, h3, h4, h5, h6 = st.columns([2, 1, 2, 1, 1, 1])
-        h1.write("Date/Time")
-        h2.write("Direction")
-        h3.write("Other Account")
-        h4.write("Amount")
-        h5.write("Asset")
-        h6.write("Details")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        for idx, row in filtered_df.iterrows():
-            st.markdown('<div class="detail-row">', unsafe_allow_html=True)
-            r1, r2, r3, r4, r5, r6 = st.columns([2, 1, 2, 1, 1, 1])
-            r1.write(row['timestamp'].strftime('%Y-%m-%d %H:%M:%S'))
-            r2.write(row['direction'])
-            
+        # --- TRANSACTION TABLE ---
+        display_df = filtered_df.copy()
+        display_df['Date/Time'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
+        def create_link(row):
             safe_name = urllib.parse.quote(str(row['other_account']))
-            link_html = f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
-            r3.markdown(link_html, unsafe_allow_html=True)
-            
-            amt_fmt = f"{row['amount']:,.2f}" if row['asset'] == "DMMK" else f"{row['amount']:,.7f}"
-            r4.write(amt_fmt)
-            r5.write(row['asset'])
-            if r6.button("View", key=f"hist_{idx}", use_container_width=True):
-                show_account_details(row['other_account'], row['other_account_id'], row['asset'], df)
-            st.markdown('</div>', unsafe_allow_html=True)
+            return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
+        
+        display_df['Other Account'] = display_df.apply(create_link, axis=1)
+        display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
+        st.write("**Transaction History**")
+        st.markdown(display_df[['Date/Time', 'direction', 'Other Account', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
@@ -268,7 +251,7 @@ if st.session_state.stellar_data:
         st.subheader("Summary by Account")
         
         s1, s2 = st.columns([2, 1])
-        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"])
+        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"], format_func=lambda x: x.replace("_", " "))
         sort_order = s2.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
         
         summary_df = filtered_df.copy()
@@ -280,45 +263,53 @@ if st.session_state.stellar_data:
             Total_Volume=('amount', 'sum'), Tx_Count=('amount', 'count')
         ).reset_index()
         account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
+        
+        # Sort logic fix applied
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # Header with grid look
-        st.markdown('<div class="header-row">', unsafe_allow_html=True)
-        hcol1, hcol2, hcol3, hcol4, hcol5, hcol6, hcol7, hcol8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
-        hcol1.write("Other Account")
-        hcol2.write("Asset")
-        hcol3.write("Total Volume")
-        hcol4.write("Incoming")
-        hcol5.write("Outgoing")
-        hcol6.write("Net Balance")
-        hcol7.write("Tx Count")
-        hcol8.write("Details")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        for idx, row in account_summary.iterrows():
-            st.markdown('<div class="detail-row">', unsafe_allow_html=True)
-            rc1, rc2, rc3, rc4, rc5, rc6, rc7, rc8 = st.columns([2, 1, 1, 1, 1, 1, 1, 1])
-            safe_name = urllib.parse.quote(str(row['other_account']))
-            rc1.markdown(f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>', unsafe_allow_html=True)
-            rc2.write(row['asset'])
-            rc3.write(f"{row['Total_Volume']:,.2f}")
-            rc4.write(f"{row['Incoming']:,.2f}")
-            rc5.write(f"{row['Outgoing']:,.2f}")
-            rc6.write(f"{row['Net_Difference']:,.2f}")
-            rc7.write(str(row['Tx_Count']))
-            if rc8.button("View", key=f"sum_{idx}", use_container_width=True):
-                show_account_details(row['other_account'], row['other_account_id'], row['asset'], df)
-            st.markdown('</div>', unsafe_allow_html=True)
+        disp_sum = account_summary.copy()
+        disp_sum['Other Account'] = disp_sum.apply(create_link, axis=1)
+        for c in ['Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference']: disp_sum[c] = disp_sum[c].apply(lambda x: f"{x:,.2f}")
+        
+        st.markdown(disp_sum[['Other Account', 'asset', 'Total_Volume', 'Incoming', 'Outgoing', 'Net_Difference', 'Tx_Count']].rename(columns={'asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
 
         # --- EXPORT SECTION ---
         st.markdown("### Export Data")
-        ex1, ex2 = st.columns(2)
-        with ex1:
-            st.download_button("⬇️ Export History (CSV)", filtered_df.to_csv(index=False).encode('utf-8'), f"{st.session_state.display_name}_history.csv", "text/csv", use_container_width=True)
-        with ex2:
-            st.download_button("⬇️ Export Summary (CSV)", account_summary.to_csv(index=False).encode('utf-8'), f"{st.session_state.display_name}_summary.csv", "text/csv", use_container_width=True)
+        ex_col1, ex_col2 = st.columns(2)
 
+        with ex_col1:
+            # 1. Export Transaction History (The top table)
+            # We use filtered_df because it doesn't have the <a> tags from display_df
+            history_csv = filtered_df[['timestamp', 'direction', 'other_account', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Export Transaction History (CSV)",
+                data=history_csv,
+                file_name=f"{st.session_state.display_name}_history.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        with ex_col2:
+            # 2. Export Account Summary (The bottom table)
+            clean_sum = account_summary.rename(columns={
+                'other_account':'Other Account',
+                'asset':'Asset',
+                'Total_Volume':'Total Volume',
+                'Net_Difference':'Net Balance',
+                'Tx_Count':'Tx Count'
+            })
+            summary_csv = clean_sum[['Other Account','Asset','Total Volume','Incoming','Outgoing','Net Balance','Tx Count']].to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="⬇️ Export Account Summary (CSV)",
+                data=summary_csv,
+                file_name=f"{st.session_state.display_name}_summary.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+        # --- FOOTER / BACK TO TOP ---
         st.markdown('---')
         st.markdown('<a href="#top-anchor" class="back-top">↑ Back to Top</a>', unsafe_allow_html=True)
+
 else:
     st.info("Enter an Account Name or Account ID in the sidebar to begin.")
