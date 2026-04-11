@@ -34,6 +34,17 @@ st.markdown("""
         font-weight: 600;
     }
     table.dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
+    
+    /* Right Align the Amount column in Main and Dialog Tables */
+    .main-history-table table.dataframe th:nth-child(4),
+    .main-history-table table.dataframe td:nth-child(4) {
+        text-align: right;
+    }
+    .dialog-history-table table.dataframe th:nth-child(3),
+    .dialog-history-table table.dataframe td:nth-child(3) {
+        text-align: right;
+    }
+
     a.account-link {
         text-decoration: none;
         color: #1f77b4;
@@ -150,11 +161,13 @@ def show_transaction_details(other_account_id, other_account_name, asset_type):
     
     if not filtered.empty:
         filtered['Date/Time'] = filtered['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        filtered['Amount_Disp'] = filtered.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
+        filtered['Amount_Disp'] = filtered.apply(lambda r: f"{r['amount']:,.2f}", axis=1)
         
-        st.markdown(filtered[['Date/Time', 'direction', 'Amount_Disp', 'asset']]
+        html_table = (filtered[['Date/Time', 'direction', 'Amount_Disp', 'asset']]
                     .rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'})
-                    .to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+                    .to_html(escape=False, index=False, classes="dataframe"))
+        
+        st.markdown(f'<div class="dialog-history-table">{html_table}</div>', unsafe_allow_html=True)
     else:
         st.warning("No transactions found for this asset.")
 
@@ -205,7 +218,7 @@ if st.session_state.stellar_data:
     dmmk_bal, nusdt_bal = fetch_balances(st.session_state.target_id)
     b1, b2, _ = st.columns([1, 1, 2])
     b1.metric("DMMK", f"{dmmk_bal:,.2f}")
-    b2.metric("nUSDT", f"{nusdt_bal:,.7f}")
+    b2.metric("nUSDT", f"{nusdt_bal:,.2f}")
     st.markdown("---")
 
     # INTERACTIVE FILTERS
@@ -273,9 +286,14 @@ if st.session_state.stellar_data:
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
         
         display_df['Other Account'] = display_df.apply(create_link, axis=1)
-        display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}" if r['asset'] == "DMMK" else f"{r['amount']:,.7f}", axis=1)
+        display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}", axis=1)
         st.write("**Transaction History**")
-        st.markdown(display_df[['Date/Time', 'direction', 'Other Account', 'Amount_Disp', 'asset']].rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'}).to_html(escape=False, index=False, classes="dataframe"), unsafe_allow_html=True)
+        
+        html_main_table = (display_df[['Date/Time', 'direction', 'Other Account', 'Amount_Disp', 'asset']]
+                           .rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'})
+                           .to_html(escape=False, index=False, classes="dataframe"))
+        
+        st.markdown(f'<div class="main-history-table">{html_main_table}</div>', unsafe_allow_html=True)
 
         # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
@@ -300,8 +318,12 @@ if st.session_state.stellar_data:
         # Build Custom Table UI
         cols = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
         headers = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
-        for col, h in zip(cols, headers):
-            col.markdown(f"**{h}**")
+        
+        for i, (col, h) in enumerate(zip(cols, headers)):
+            if i >= 2:  # Right align columns from Total Volume onwards
+                col.markdown(f"<div style='text-align: right;'>**{h}**</div>", unsafe_allow_html=True)
+            else:
+                col.markdown(f"**{h}**")
         st.divider()
 
         for idx, row in account_summary.iterrows():
@@ -316,12 +338,12 @@ if st.session_state.stellar_data:
                     if st.button("📜", key=f"btn_{idx}_{row['asset']}"):
                         show_transaction_details(row['other_account_id'], row['other_account'], row['asset'])
             
-            c2.text(row['asset'])
-            c3.text(f"{row['Total_Volume']:,.2f}")
-            c4.text(f"{row['Incoming']:,.2f}")
-            c5.text(f"{row['Outgoing']:,.2f}")
-            c6.text(f"{row['Net_Difference']:,.2f}")
-            c7.text(row['Tx_Count'])
+            c2.markdown(f"{row['asset']}")
+            c3.markdown(f"<div style='text-align: right;'>{row['Total_Volume']:,.2f}</div>", unsafe_allow_html=True)
+            c4.markdown(f"<div style='text-align: right;'>{row['Incoming']:,.2f}</div>", unsafe_allow_html=True)
+            c5.markdown(f"<div style='text-align: right;'>{row['Outgoing']:,.2f}</div>", unsafe_allow_html=True)
+            c6.markdown(f"<div style='text-align: right;'>{row['Net_Difference']:,.2f}</div>", unsafe_allow_html=True)
+            c7.markdown(f"<div style='text-align: right;'>{row['Tx_Count']}</div>", unsafe_allow_html=True)
             st.markdown('<hr style="margin:0; border-color:rgba(128,128,128,0.2)">', unsafe_allow_html=True)
 
         # EXPORT SECTION
