@@ -243,9 +243,11 @@ if st.session_state.stellar_data:
                 sel_week = st.selectbox("Filter by Week", ["All Weeks"] + dynamic_weeks)
     else:
         with t1:
-            date_range = st.date_input("Select Range", value=(df['timestamp'].min().date(), df['timestamp'].max().date()))
-            if isinstance(date_range, tuple) and len(date_range) == 2:
-                start_date, end_date = date_range
+            min_date = df['timestamp'].min().date()
+            max_date = df['timestamp'].max().date()
+            start_date = st.date_input("From", value=min_date, min_value=min_date, max_value=max_date)
+        with t2:
+            end_date = st.date_input("To", value=max_date, min_value=min_date, max_value=max_date)
 
     with t3:
         recency = st.radio("Quick Tracker", ["Full History", "Last 7 Days", "Last 24 Hours"], horizontal=True)
