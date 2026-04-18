@@ -323,9 +323,9 @@ if st.session_state.stellar_data:
         
         for i, (col, h) in enumerate(zip(cols, headers)):
             if i >= 2:  # Right align columns from Total Volume onwards
-                col.markdown(f"<div style='text-align: right;'>**{h}**</div>", unsafe_allow_html=True)
+                col.markdown(f"<div style='text-align: right;'>{h}</div>", unsafe_allow_html=True)
             else:
-                col.markdown(f"{h}")
+                col.markdown(f"**{h}**")
         st.divider()
 
         for idx, row in account_summary.iterrows():
