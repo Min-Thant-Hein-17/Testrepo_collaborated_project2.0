@@ -40,8 +40,8 @@ st.markdown("""
     .main-history-table table.dataframe td:nth-child(4) {
         text-align: right;
     }
-    .dialog-history-table table.dataframe th:nth-child(3),
-    .dialog-history-table table.dataframe td:nth-child(3) {
+    .dialog-history-table table.dataframe th:nth-child(4),
+    .dialog-history-table table.dataframe td:nth-child(4) {
         text-align: right;
     }
 
@@ -153,18 +153,19 @@ def load_account_data(identifier, months):
 # --- DIALOG BOX FUNCTION ---
 @st.dialog("Transaction History Details", width="large")
 def show_transaction_details(other_account_id, other_account_name, asset_type):
-    st.write(f"**Dashboard Account:** `{st.session_state.display_name}`")
-    st.write(f"**Other Account:** `{other_account_name}`")
+    st.markdown(f"Account Name: <span style='font-size: 1.5rem; font-weight: bold;'>{st.session_state.display_name}</span>", unsafe_allow_html=True)
     
     raw_df = pd.DataFrame(st.session_state.stellar_data)
     filtered = raw_df[(raw_df['other_account_id'] == other_account_id) & (raw_df['asset'] == asset_type)].copy()
     
     if not filtered.empty:
         filtered['Date/Time'] = filtered['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        filtered['Amount_Disp'] = filtered.apply(lambda r: f"{r['amount']:,.2f}", axis=1)
+        filtered['Direction'] = filtered['direction'].map({'INCOMING': 'Received', 'OUTGOING': 'Sent'})
+        filtered['Other Account'] = other_account_name
+        filtered['Amount_Disp'] = filtered.apply(lambda r: f"+ {r['amount']:,.2f}" if r['direction'] == 'INCOMING' else f"- {r['amount']:,.2f}", axis=1)
         
-        html_table = (filtered[['Date/Time', 'direction', 'Amount_Disp', 'asset']]
-                    .rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'})
+        html_table = (filtered[['Date/Time', 'Direction', 'Other Account', 'Amount_Disp', 'asset']]
+                    .rename(columns={'Amount_Disp':'Amount','asset':'Asset'})
                     .to_html(escape=False, index=False, classes="dataframe"))
         
         st.markdown(f'<div class="dialog-history-table">{html_table}</div>', unsafe_allow_html=True)
@@ -286,11 +287,12 @@ if st.session_state.stellar_data:
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
         
         display_df['Other Account'] = display_df.apply(create_link, axis=1)
-        display_df['Amount_Disp'] = display_df.apply(lambda r: f"{r['amount']:,.2f}", axis=1)
+        display_df['Direction'] = display_df['direction'].map({'INCOMING': 'Received', 'OUTGOING': 'Sent'})
+        display_df['Amount_Disp'] = display_df.apply(lambda r: f"+ {r['amount']:,.2f}" if r['direction'] == 'INCOMING' else f"- {r['amount']:,.2f}", axis=1)
         st.write("**Transaction History**")
         
-        html_main_table = (display_df[['Date/Time', 'direction', 'Other Account', 'Amount_Disp', 'asset']]
-                           .rename(columns={'direction':'Direction','Amount_Disp':'Amount','asset':'Asset'})
+        html_main_table = (display_df[['Date/Time', 'Direction', 'Other Account', 'Amount_Disp', 'asset']]
+                           .rename(columns={'Amount_Disp':'Amount','asset':'Asset'})
                            .to_html(escape=False, index=False, classes="dataframe"))
         
         st.markdown(f'<div class="main-history-table">{html_main_table}</div>', unsafe_allow_html=True)
@@ -301,23 +303,23 @@ if st.session_state.stellar_data:
         st.subheader("Summary by Account")
         
         s1, s2 = st.columns([2, 1])
-        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Incoming", "Outgoing"], format_func=lambda x: x.replace("_", " "))
+        sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Received", "Sent"], format_func=lambda x: x.replace("_", " "))
         sort_order = s2.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
         
         summary_df = filtered_df.copy()
-        summary_df['Incoming'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
-        summary_df['Outgoing'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
+        summary_df['Received'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
+        summary_df['Sent'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
 
         account_summary = summary_df.groupby(['other_account', 'other_account_id', 'asset']).agg(
-            Outgoing=('Outgoing', 'sum'), Incoming=('Incoming', 'sum'),
+            Sent=('Sent', 'sum'), Received=('Received', 'sum'),
             Total_Volume=('amount', 'sum'), Tx_Count=('amount', 'count')
         ).reset_index()
-        account_summary['Net_Difference'] = account_summary['Incoming'] - account_summary['Outgoing']
+        account_summary['Net_Difference'] = account_summary['Received'] - account_summary['Sent']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
         # Build Custom Table UI
         cols = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
-        headers = ['Other Account', 'Asset', 'Total Volume', 'Incoming', 'Outgoing', 'Net Balance', 'Tx Count']
+        headers = ['Other Account', 'Asset', 'Total Volume', 'Received', 'Sent', 'Net Balance', 'Tx Count']
         
         for i, (col, h) in enumerate(zip(cols, headers)):
             if i >= 2:  # Right align columns from Total Volume onwards
@@ -340,8 +342,8 @@ if st.session_state.stellar_data:
             
             c2.markdown(f"{row['asset']}")
             c3.markdown(f"<div style='text-align: right;'>{row['Total_Volume']:,.2f}</div>", unsafe_allow_html=True)
-            c4.markdown(f"<div style='text-align: right;'>{row['Incoming']:,.2f}</div>", unsafe_allow_html=True)
-            c5.markdown(f"<div style='text-align: right;'>{row['Outgoing']:,.2f}</div>", unsafe_allow_html=True)
+            c4.markdown(f"<div style='text-align: right;'>{row['Received']:,.2f}</div>", unsafe_allow_html=True)
+            c5.markdown(f"<div style='text-align: right;'>{row['Sent']:,.2f}</div>", unsafe_allow_html=True)
             c6.markdown(f"<div style='text-align: right;'>{row['Net_Difference']:,.2f}</div>", unsafe_allow_html=True)
             c7.markdown(f"<div style='text-align: right;'>{row['Tx_Count']}</div>", unsafe_allow_html=True)
             st.markdown('<hr style="margin:0; border-color:rgba(128,128,128,0.2)">', unsafe_allow_html=True)
@@ -350,11 +352,13 @@ if st.session_state.stellar_data:
         st.markdown("### Export Data")
         ex_col1, ex_col2 = st.columns(2)
         with ex_col1:
-            history_csv = filtered_df[['timestamp', 'direction', 'other_account', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
+            history_export = filtered_df.copy()
+            history_export['direction'] = history_export['direction'].map({'INCOMING': 'Received', 'OUTGOING': 'Sent'})
+            history_csv = history_export[['timestamp', 'direction', 'other_account', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
             st.download_button(label="⬇️ Export Transaction History (CSV)", data=history_csv, file_name=f"{st.session_state.display_name}_history.csv", mime="text/csv", use_container_width=True)
         with ex_col2:
             clean_sum = account_summary.rename(columns={'other_account':'Other Account','asset':'Asset','Total_Volume':'Total Volume','Net_Difference':'Net Balance','Tx_Count':'Tx Count'})
-            summary_csv = clean_sum[['Other Account','Asset','Total Volume','Incoming','Outgoing','Net Balance','Tx Count']].to_csv(index=False).encode('utf-8')
+            summary_csv = clean_sum[['Other Account','Asset','Total Volume','Received','Sent','Net Balance','Tx Count']].to_csv(index=False).encode('utf-8')
             st.download_button(label="⬇️ Export Account Summary (CSV)", data=summary_csv, file_name=f"{st.session_state.display_name}_summary.csv", mime="text/csv", use_container_width=True)
 
         st.markdown('---')
