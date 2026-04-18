@@ -110,7 +110,7 @@ if 'analysis_months' not in st.session_state:
 def fetch_cached_analysis(target_id, months):
     return analyze_stellar_account(target_id, months=months)
 
-@st.cache_data(ttl=300, Wood_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def fetch_balances(account_id):
     if not account_id: return 0.0, 0.0
     server = Server("https://horizon.stellar.org")
