@@ -3,3 +3,4 @@ pandas
 plotly
 stellar-sdk
 requests
+streamlit-authenticator
