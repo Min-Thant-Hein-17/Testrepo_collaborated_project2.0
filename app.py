@@ -181,7 +181,7 @@ st.sidebar.header("Configuration")
 # --- TIMEZONE SELECTOR ---
 common_tz = ['UTC', 'Asia/Yangon', 'Asia/Bangkok', 'Asia/Singapore', 'America/New_York', 'Europe/London', 'Australia/Sydney']
 all_tz = sorted(list(pytz.all_timezones))
-# Default to UTC or Yangon if preferred
+# Default Timezone is Asia/Yangon 
 selected_tz_name = st.sidebar.selectbox("Select Timezone", all_tz, index=all_tz.index('Asia/Yangon') if 'Asia/Yangon' in all_tz else 0)
 user_tz = pytz.timezone(selected_tz_name)
 
