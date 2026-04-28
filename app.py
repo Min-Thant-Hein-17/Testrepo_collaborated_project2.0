@@ -228,7 +228,6 @@ if st.session_state.stellar_data:
     b1, b2, _ = st.columns([1, 1, 2])
     b1.metric("DMMK", f"{dmmk_bal:,.2f}")
     b2.metric("nUSDT", f"{nusdt_bal:,.2f}")
-    st.caption(f"Balances as of current network state. Timezone: {selected_tz_name}")
     st.markdown("---")
 
     # INTERACTIVE FILTERS
