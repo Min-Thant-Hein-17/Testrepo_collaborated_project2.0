@@ -1,5 +1,6 @@
 import pandas as pd
 from datetime import datetime, timedelta, timezone
+from stellar_sdk import Server
 from decimal import Decimal, getcontext
 import requests
 import concurrent.futures
@@ -8,7 +9,7 @@ from functools import lru_cache
 # Fixed-point precision for blockchain math
 getcontext().prec = 28 
 
-# Blockdaemon Configuration
+# Blockdaemon Private API Configuration
 BLOCKDAEMON_API_KEY = "zpka_12ec9c7e59a64e369d8bccf69fcc5efc_0f65de58"
 
 @lru_cache(maxsize=1)
@@ -29,8 +30,10 @@ def get_federation_server():
 def resolve_username_to_id(username):
     """Translates 'name' or 'name*domain' into a G-Address."""
     if not username: return None
+    
     full_address = username if "*" in username else f"{username}*nugpay.app"
     domain = full_address.split("*")[1]
+    
     try:
         toml_url = f"https://{domain}/.well-known/stellar.toml"
         res = requests.get(toml_url, timeout=5)
@@ -40,6 +43,7 @@ def resolve_username_to_id(username):
                 if "FEDERATION_SERVER" in line:
                     fed_url = line.split("=")[1].strip(' "\'')
                     break
+        
         if fed_url:
             query = f"{fed_url}?q={full_address}&type=name"
             api_res = requests.get(query, timeout=5)
@@ -80,32 +84,40 @@ def fetch_account_name(account_id, federation_url):
     return f"{account_id[:8]}*******{account_id[-8:]}"
 
 def analyze_stellar_account(account_id, months=1):
-    """Analyzes account history using Blockdaemon Ubiquity API for all-time data access."""
+    """Analyzes account history using Blockdaemon Ubiquity for all-time data access."""
     now_utc = datetime.now(timezone.utc)
     start_date = now_utc - timedelta(days=30 * months)
+    
     federation_url = get_federation_server()
     
     raw_data = []
     unique_other_accounts = set()
     
-    # Blockdaemon API setup
+    # Blockdaemon Ubiquity API Endpoint
+    # This bypasses the 1-year limitation of standard Horizon nodes
     base_url = f"https://svc.blockdaemon.com/ubiquity/v1/stellar/mainnet/account/{account_id}/txs"
-    headers = {"X-API-Key": BLOCKDAEMON_API_KEY, "accept": "application/json"}
-
+    headers = {
+        "X-API-Key": BLOCKDAEMON_API_KEY,
+        "accept": "application/json"
+    }
+    
     try:
         response = requests.get(base_url, headers=headers, timeout=15)
         if response.status_code != 200:
+            print(f"Blockdaemon API Error: {response.status_code}")
             return None
-        
+            
         items = response.json().get('items', [])
-        
+
+        # Step 1: Collect transactions from Blockdaemon items
         for tx in items:
-            # Handle timestamps from Blockdaemon format
+            # Blockdaemon provides 'date' as a unix timestamp
             dt = datetime.fromtimestamp(tx['date'], tz=timezone.utc)
+            
             if dt < start_date:
                 continue
-
-            # Blockdaemon lists events/transfers inside the transaction
+                
+            # Each transaction can contain multiple events/transfers
             for event in tx.get('events', []):
                 asset_code = event.get('asset_code')
                 if asset_code not in ["DMMK", "nUSDT"]: continue
@@ -113,7 +125,6 @@ def analyze_stellar_account(account_id, months=1):
                 raw_val = Decimal(event.get('amount', '0'))
                 final_val = raw_val * Decimal('1000') if asset_code == "DMMK" else raw_val
                 
-                # Determine direction
                 is_sender = event.get('from') == account_id
                 raw_other_account = event.get('to') if is_sender else event.get('from')
                 
@@ -129,8 +140,8 @@ def analyze_stellar_account(account_id, months=1):
                     "amount": float(final_val),
                     "asset": asset_code
                 })
-
-        # Resolve names concurrently
+            
+        # Step 2: Resolve names concurrently (Multithreading)
         name_mapping = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             futures = {executor.submit(fetch_account_name, acc, federation_url): acc for acc in unique_other_accounts}
@@ -138,10 +149,11 @@ def analyze_stellar_account(account_id, months=1):
                 acc_id = futures[future]
                 name_mapping[acc_id] = future.result()
                 
+        # Step 3: Map the names back to the records
         for row in raw_data:
             row["other_account"] = name_mapping.get(row["other_account_id"], row["other_account_id"])
             
         return raw_data
     except Exception as e:
-        print(f"Blockdaemon error: {e}")
+        print(f"Blockdaemon Processing Error: {e}")
         return None
