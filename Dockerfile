@@ -1,4 +1,3 @@
-
 FROM python:3.10-slim
 
 WORKDIR /app
@@ -16,6 +15,4 @@ COPY . .
 
 EXPOSE 8501
 
-# 8. Command to run the app when the container starts
-# --server.address=0.0.0.0 allows external access over the cloud
 ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
