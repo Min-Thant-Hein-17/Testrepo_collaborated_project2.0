@@ -1,10 +1,12 @@
+import os
 import streamlit as st
 import pandas as pd
 import urllib.parse
 import calendar
-import pytz  # Added for timezone support
+import pytz 
 from datetime import datetime, timezone, timedelta
 from stellar_sdk import Server
+from stellar_sdk.client.requests_client import RequestsClient
 from stellar_logic import (
     analyze_stellar_account, 
     resolve_username_to_id, 
@@ -109,7 +111,14 @@ def fetch_cached_analysis(target_id, months):
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_balances(account_id):
     if not account_id: return 0.0, 0.0
-    server = Server("https://horizon.stellar.org")
+    
+    bd_api_key = os.environ.get("BLOCKDAEMON_API_KEY")
+    client = RequestsClient()
+    if bd_api_key:
+         client.session.headers.update({"Authorization": f"Bearer {bd_api_key}"})
+         
+    server = Server("https://svc.blockdaemon.com/stellar/mainnet/native", client=client)
+    
     try:
         account = server.accounts().account_id(account_id).call()
         balances = account.get('balances', [])
@@ -192,7 +201,8 @@ if input_method == "Account Name":
 else:
     user_input = st.sidebar.text_input("Enter Account ID", value=st.session_state.target_id, placeholder="G...")
 
-analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 12, st.session_state.analysis_months)
+# Increased Timeframe to 60 Months for Blockdaemon support
+analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 60, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
 
 # Sidebar Action Buttons
