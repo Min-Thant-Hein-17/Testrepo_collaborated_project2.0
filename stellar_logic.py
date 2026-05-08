@@ -82,6 +82,25 @@ def fetch_account_name(account_id, federation_url):
             pass
     return f"{account_id[:8]}*******{account_id[-8:]}"
 
+def _extract_amount_and_parties(record):
+    
+    op_type = record.get("type", "payment")
+
+    # For path_payment_strict_send, the destination receives 'amount'
+    # For path_payment_strict_receive, the source sends 'source_amount'
+    # For regular payment, 'amount' is always present
+    if op_type == "path_payment_strict_send":
+        amount = record.get("amount", "0")          # amount received by destination
+    elif op_type == "path_payment_strict_receive":
+        amount = record.get("amount", "0")          # amount received; source_amount is what was sent
+    else:
+        amount = record.get("amount", "0")
+
+    sender = record.get("from") or record.get("source_account", "")
+    receiver = record.get("to") or record.get("destination", "")
+
+    return amount, sender, receiver
+
 def analyze_stellar_account(account_id, months=1):
     bd_api_key = os.environ.get("BLOCKDAEMON_API_KEY")
     bd_url = "https://svc.blockdaemon.com/stellar/mainnet/native"
@@ -92,7 +111,10 @@ def analyze_stellar_account(account_id, months=1):
             "Authorization": f"Bearer {bd_api_key}"
         })
     else:
-        print("Warning: No Blockdaemon API Key found. Connection may fail.")
+    
+        print("WARNING: No BLOCKDAEMON_API_KEY found in environment. "
+              "Blockdaemon requires a valid Bearer token — requests will be "
+              "rejected with HTTP 401, which appears as empty results.")
 
     server = Server(bd_url, client=client)
     now_utc = datetime.now(timezone.utc)
@@ -102,29 +124,56 @@ def analyze_stellar_account(account_id, months=1):
     
     raw_data = []
     unique_other_accounts = set()
-    
+    stop_fetching = False  # flag to break outer loop cleanly
+
     try:
-        payments_call = server.payments().for_account(account_id).order(desc=True).limit(200)
-        records = payments_call.call()
+        payments_call = (
+            server.payments()
+            .for_account(account_id)
+            .order(desc=True)
+            .limit(200)
+        )
 
-        # Step 1: Collect all transactions as fast as possible
-        while records['_embedded']['records']:
-            for record in records['_embedded']['records']:
-                dt = datetime.strptime(record['created_at'], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        try:
+            records = payments_call.call()
+        except Exception as first_call_err:
+            print(f"ERROR: Initial Blockdaemon call failed: {first_call_err}")
+            print("Check that BLOCKDAEMON_API_KEY is set correctly and the "
+                  "account ID is valid on Stellar mainnet.")
+            return None
+
+        while not stop_fetching:
+            page_records = records.get('_embedded', {}).get('records', [])
+            if not page_records:
+                break
+
+            for record in page_records:
+                dt = datetime.strptime(
+                    record['created_at'], "%Y-%m-%dT%H:%M:%SZ"
+                ).replace(tzinfo=timezone.utc)
+
                 if dt < start_date:
-                    records['_embedded']['records'] = []
+                    stop_fetching = True
                     break
-                
-                asset_code = record.get('asset_code')
-                if asset_code not in ["DMMK", "nUSDT"]: continue
 
-                raw_val = Decimal(record.get('amount', '0'))
-                final_val = raw_val * Decimal('1000') if asset_code == "DMMK" else raw_val
-                is_sender = record.get('from') == account_id
-                raw_other_account = record.get('to') if is_sender else record.get('from')
-                
+                asset_code = record.get('asset_code')
+                if asset_code not in ["DMMK", "nUSDT"]:
+                    continue
+
+                raw_amount_str, sender, receiver = _extract_amount_and_parties(record)
+
+                raw_val = Decimal(raw_amount_str or '0')
+                final_val = (
+                    raw_val * Decimal('1000') if asset_code == "DMMK" else raw_val
+                )
+                is_sender = sender == account_id
+                raw_other_account = receiver if is_sender else sender
+
+                if not raw_other_account:
+                    continue  # skip malformed records
+
                 unique_other_accounts.add(raw_other_account)
-                
+
                 raw_data.append({
                     "timestamp": dt,
                     "date": dt.date(),
@@ -135,22 +184,61 @@ def analyze_stellar_account(account_id, months=1):
                     "amount": float(final_val),
                     "asset": asset_code
                 })
-            records = payments_call.next()
-            if not records['_embedded']['records']: break
-            
-        # Step 2: Resolve names concurrently (Multithreading)
+
+            if stop_fetching:
+                break
+
+            # instead of returning an empty records list like Horizon does.
+            try:
+                next_page = payments_call.next()
+                if next_page is None:
+                    print("DEBUG: payments_call.next() returned None — end of pages.")
+                    break
+                next_records = next_page.get('_embedded', {}).get('records', [])
+                if not next_records:
+                    break
+                records = next_page
+            except StopIteration:
+                # Some SDK versions raise StopIteration at end of pages
+                break
+            except Exception as page_err:
+                print(f"DEBUG: Pagination stopped: {page_err}")
+                break
+
+        
         name_mapping = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = {executor.submit(fetch_account_name, acc, federation_url): acc for acc in unique_other_accounts}
+            futures = {
+                executor.submit(fetch_account_name, acc, federation_url): acc
+                for acc in unique_other_accounts
+            }
             for future in concurrent.futures.as_completed(futures):
                 acc_id = futures[future]
-                name_mapping[acc_id] = future.result()
-                
+                try:
+                    name_mapping[acc_id] = future.result()
+                except Exception as name_err:
+                    print(f"Name resolution failed for {acc_id}: {name_err}")
+                    name_mapping[acc_id] = f"{acc_id[:8]}*******{acc_id[-8:]}"
+
         # Step 3: Map the names back to the records
         for row in raw_data:
-            row["other_account"] = name_mapping.get(row["other_account_id"], row["other_account_id"])
-            
+            row["other_account"] = name_mapping.get(
+                row["other_account_id"], row["other_account_id"]
+            )
+
+        if not raw_data:
+            print(
+                f"INFO: No DMMK or nUSDT transactions found for account {account_id} "
+                f"in the last {months} month(s). "
+                "Verify the account has activity on Blockdaemon mainnet and that "
+                "the API key has the correct permissions."
+            )
+
         return raw_data
+
     except Exception as e:
-        print(f"Error: {e}")
+    
+        print(f"CRITICAL ERROR in analyze_stellar_account: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return None
