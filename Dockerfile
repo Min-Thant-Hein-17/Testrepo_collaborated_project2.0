@@ -7,8 +7,7 @@ WORKDIR /app
 # 3. Install necessary system tools
 RUN apt-get update && apt-get install -y \
     build-essential \
-    curl \
-    software-properties-common \
+    curl
     && rm -rf /var/lib/apt/lists/*
 
 # 4. Copy the requirements file into the container
