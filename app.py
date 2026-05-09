@@ -13,10 +13,8 @@ from stellar_logic import (
     resolve_id_to_name
 )
 
-# 1. Page Configuration
 st.set_page_config(page_title="NUGpay Pro Dashboard", layout="wide")
 
-# Custom CSS
 st.markdown("""
 <style>
     html { scroll-behavior: smooth; }
@@ -37,7 +35,7 @@ st.markdown("""
         font-weight: 600;
     }
     table.dataframe tr:hover { background-color: rgba(128, 128, 128, 0.1); }
-    
+
     .main-history-table table.dataframe th:nth-child(4),
     .main-history-table table.dataframe td:nth-child(4),
     .dialog-history-table table.dataframe th:nth-child(4),
@@ -66,7 +64,7 @@ st.markdown("""
         float: right;
     }
     div[data-testid="stMetricValue"] { font-size: 1.8rem; }
-    
+
     .stButton > button[kind="secondary"] {
         padding: 0px 5px;
         height: 25px;
@@ -93,7 +91,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 2. Session State Initialization
 if 'stellar_data' not in st.session_state:
     st.session_state.stellar_data = None
 if 'display_name' not in st.session_state:
@@ -111,14 +108,14 @@ def fetch_cached_analysis(target_id, months):
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_balances(account_id):
     if not account_id: return 0.0, 0.0
-    
+
     bd_api_key = os.environ.get("BLOCKDAEMON_API_KEY")
     client = RequestsClient()
     if bd_api_key:
          client.session.headers.update({"Authorization": f"Bearer {bd_api_key}"})
-         
+
     server = Server("https://svc.blockdaemon.com/stellar/mainnet/native", client=client)
-    
+
     try:
         account = server.accounts().account_id(account_id).call()
         balances = account.get('balances', [])
@@ -141,7 +138,7 @@ def load_account_data(identifier, months):
             if found_name: current_name = found_name
         else:
             target_id = resolve_username_to_id(identifier)
-        
+
         if target_id:
             data = fetch_cached_analysis(target_id, months)
             if data:
@@ -155,42 +152,38 @@ def load_account_data(identifier, months):
         st.error("Account details or transactions not found.")
         return False
 
-# --- DIALOG BOX FUNCTION ---
 @st.dialog("Transaction History Details", width="large")
 def show_transaction_details(other_account_id, other_account_name, asset_type, tz_obj):
     st.markdown(f"Account Name: <span style='font-size: 1.5rem; font-weight: bold;'>{st.session_state.display_name}</span>", unsafe_allow_html=True)
-    
+
     raw_df = pd.DataFrame(st.session_state.stellar_data)
     filtered = raw_df[(raw_df['other_account_id'] == other_account_id) & (raw_df['asset'] == asset_type)].copy()
-    
+
     if not filtered.empty:
-        # Convert to selected timezone
+
         filtered['timestamp'] = pd.to_datetime(filtered['timestamp']).dt.tz_convert(tz_obj)
         filtered['Date/Time'] = filtered['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         filtered['Direction'] = filtered['direction'].map({'INCOMING': 'Received', 'OUTGOING': 'Sent'})
         filtered['Other Account'] = other_account_name
         filtered['Amount_Disp'] = filtered.apply(lambda r: f"+ {r['amount']:,.2f}" if r['direction'] == 'INCOMING' else f"- {r['amount']:,.2f}", axis=1)
-        
+
         html_table = (filtered[['Date/Time', 'Direction', 'Other Account', 'Amount_Disp', 'asset']]
                     .rename(columns={'Amount_Disp':'Amount','asset':'Asset'})
                     .to_html(escape=False, index=False, classes="dataframe"))
-        
+
         st.markdown(f'<div class="dialog-history-table">{html_table}</div>', unsafe_allow_html=True)
     else:
         st.warning("No transactions found for this asset.")
 
-# URL Check
 target_from_url = st.query_params.get("target_account")
 if target_from_url and st.session_state.display_name != st.query_params.get("name"):
     load_account_data(target_from_url, st.session_state.analysis_months)
 
-# 3. Sidebar Configuration
 st.sidebar.header("Configuration")
 
-# --- TIMEZONE SELECTOR ---
 common_tz = ['UTC', 'Asia/Yangon', 'Asia/Bangkok', 'Asia/Singapore', 'America/New_York', 'Europe/London', 'Australia/Sydney']
 all_tz = sorted(list(pytz.all_timezones))
-# Default Timezone is Asia/Yangon 
+
 selected_tz_name = st.sidebar.selectbox("Select Timezone", all_tz, index=all_tz.index('Asia/Yangon') if 'Asia/Yangon' in all_tz else 0)
 user_tz = pytz.timezone(selected_tz_name)
 
@@ -201,11 +194,9 @@ if input_method == "Account Name":
 else:
     user_input = st.sidebar.text_input("Enter Account ID", value=st.session_state.target_id, placeholder="G...")
 
-# Increased Timeframe to 60 Months for Blockdaemon support
 analysis_months = st.sidebar.slider("Timeframe (Months)", 1, 60, st.session_state.analysis_months)
 st.session_state.analysis_months = analysis_months 
 
-# Sidebar Action Buttons
 if st.sidebar.button("Analyze Account", use_container_width=True) and user_input:
     load_account_data(user_input, analysis_months)
 
@@ -217,7 +208,6 @@ if st.sidebar.button("Clear Cache", use_container_width=True):
     fetch_cached_analysis.clear()
     st.rerun()
 
-# 4. Main Dashboard
 st.markdown("<div id='top-anchor'></div>", unsafe_allow_html=True)
 if st.session_state.display_name:
     st.title(f"{st.session_state.display_name}*nugpay.app 🪙")
@@ -226,13 +216,11 @@ else:
 
 if st.session_state.stellar_data:
     df = pd.DataFrame(st.session_state.stellar_data)
-    
-    # Apply Timezone Conversion to the main DataFrame
+
     df['timestamp'] = pd.to_datetime(df['timestamp']).dt.tz_convert(user_tz)
     df['month_year'] = df['timestamp'].dt.strftime('%B %Y')
     df['day'] = df['timestamp'].dt.day
 
-    # KPI SECTION
     st.subheader("Current Balance")
     dmmk_bal, nusdt_bal = fetch_balances(st.session_state.target_id)
     b1, b2, _ = st.columns([1, 1, 2])
@@ -240,7 +228,6 @@ if st.session_state.stellar_data:
     b2.metric("nUSDT", f"{nusdt_bal:,.2f}")
     st.markdown("---")
 
-    # INTERACTIVE FILTERS
     st.subheader("Interactive Filters")
     filter_mode = st.radio("Date Filter Mode", ["Standard (Month/Week)", "Custom Date Range"], horizontal=True)
     t1, t2, t3 = st.columns(3)
@@ -248,7 +235,7 @@ if st.session_state.stellar_data:
 
     if filter_mode == "Standard (Month/Week)":
         with t1:
-            # Re-sort using timestamps to ensure correct month ordering
+
             available_months = df.sort_values('timestamp', ascending=False)['month_year'].unique().tolist()
             sel_month = st.selectbox("Filter by Month", ["All Months"] + available_months)
         with t2:
@@ -274,9 +261,8 @@ if st.session_state.stellar_data:
 
     selected_assets = st.pills("Filter Assets", options=["DMMK", "nUSDT"], default=["DMMK", "nUSDT"], selection_mode="multi")
 
-    # --- APPLY LOGIC ---
     filtered_df = df.copy()
-    
+
     if selected_assets:
         filtered_df = filtered_df[filtered_df['asset'].isin(selected_assets)]
     else:
@@ -290,8 +276,8 @@ if st.session_state.stellar_data:
                 filtered_df = filtered_df[filtered_df['day'].between(int(bounds[0]), int(bounds[1]))]
     elif start_date and end_date:
         filtered_df = filtered_df[(filtered_df['timestamp'].dt.date >= start_date) & (filtered_df['timestamp'].dt.date <= end_date)]
-    
-    now = datetime.now(user_tz) # Aware now
+
+    now = datetime.now(user_tz)
     if recency == "Last 7 Days": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(days=7))]
     elif recency == "Last 24 Hours": filtered_df = filtered_df[filtered_df['timestamp'] >= (now - timedelta(hours=24))]
 
@@ -300,33 +286,32 @@ if st.session_state.stellar_data:
     elif filtered_df.empty:
         st.warning("No data found for this selection.")
     else:
-        # --- TRANSACTION TABLE ---
+
         display_df = filtered_df.copy()
         display_df['Date/Time'] = display_df['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
         def create_link(row):
             safe_name = urllib.parse.quote(str(row['other_account']))
             return f'<a class="account-link" href="/?target_account={row["other_account_id"]}&name={safe_name}&months={st.session_state.analysis_months}" target="_self">{row["other_account"]}</a>'
-        
+
         display_df['Other Account'] = display_df.apply(create_link, axis=1)
         display_df['Direction'] = display_df['direction'].map({'INCOMING': 'Received', 'OUTGOING': 'Sent'})
         display_df['Amount_Disp'] = display_df.apply(lambda r: f"+ {r['amount']:,.2f}" if r['direction'] == 'INCOMING' else f"- {r['amount']:,.2f}", axis=1)
         st.write(f"**Transaction History ({selected_tz_name})**")
-        
+
         html_main_table = (display_df[['Date/Time', 'Direction', 'Other Account', 'Amount_Disp', 'asset']]
                            .rename(columns={'Amount_Disp':'Amount','asset':'Asset'})
                            .to_html(escape=False, index=False, classes="dataframe"))
-        
+
         st.markdown(f'<div class="main-history-table">{html_main_table}</div>', unsafe_allow_html=True)
 
-        # --- SUMMARY SECTION ---
         st.markdown("<div id='summary-section' style='padding-top:20px;'></div>", unsafe_allow_html=True)
         st.markdown("---")
         st.subheader("Summary by Account")
-        
+
         s1, s2 = st.columns([2, 1])
         sort_metric = s1.selectbox("Sort Summary By", options=["Tx_Count", "Total_Volume", "Net_Difference", "Received", "Sent"], format_func=lambda x: x.replace("_", " "))
         sort_order = s2.radio("Order", ["Ascending", "Descending"], index=1, horizontal=True)
-        
+
         summary_df = filtered_df.copy()
         summary_df['Received'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "INCOMING" else 0, axis=1)
         summary_df['Sent'] = summary_df.apply(lambda x: x['amount'] if x['direction'] == "OUTGOING" else 0, axis=1)
@@ -338,10 +323,9 @@ if st.session_state.stellar_data:
         account_summary['Net_Difference'] = account_summary['Received'] - account_summary['Sent']
         account_summary = account_summary.sort_values(sort_metric, ascending=(sort_order == "Ascending")).head(10)
 
-        # Build Custom Table UI
         cols = st.columns([2.5, 1, 1.5, 1.5, 1.5, 1.5, 1])
         headers = ['Other Account', 'Asset', 'Total Volume', 'Received', 'Sent', 'Net Balance', 'Tx Count']
-        
+
         for i, (col, h) in enumerate(zip(cols, headers)):
             if i >= 2:
                 col.markdown(f"<div style='text-align: right;'><b>{h}</b></div>", unsafe_allow_html=True)
@@ -360,7 +344,7 @@ if st.session_state.stellar_data:
                 with inner_col2:
                     if st.button("📜", key=f"btn_{idx}_{row['asset']}"):
                         show_transaction_details(row['other_account_id'], row['other_account'], row['asset'], user_tz)
-            
+
             c2.markdown(f"{row['asset']}")
             c3.markdown(f"<div style='text-align: right;'>{row['Total_Volume']:,.2f}</div>", unsafe_allow_html=True)
             c4.markdown(f"<div style='text-align: right;'>{row['Received']:,.2f}</div>", unsafe_allow_html=True)
@@ -369,13 +353,12 @@ if st.session_state.stellar_data:
             c7.markdown(f"<div style='text-align: right;'>{row['Tx_Count']}</div>", unsafe_allow_html=True)
             st.markdown('<hr style="margin:0; border-color:rgba(128,128,128,0.2)">', unsafe_allow_html=True)
 
-        # EXPORT SECTION
         st.markdown("### Export Data")
         ex_col1, ex_col2 = st.columns(2)
         with ex_col1:
             history_export = filtered_df.copy()
             history_export['direction'] = history_export['direction'].map({'INCOMING': 'Received', 'OUTGOING': 'Sent'})
-            # Ensure timestamps in CSV match user's chosen timezone
+
             history_export['timestamp'] = history_export['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
             history_csv = history_export[['timestamp', 'direction', 'other_account', 'amount', 'asset']].to_csv(index=False).encode('utf-8')
             st.download_button(label="⬇️ Export Transaction History (CSV)", data=history_csv, file_name=f"{st.session_state.display_name}_history.csv", mime="text/csv", use_container_width=True)
