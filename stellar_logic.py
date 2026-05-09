@@ -83,7 +83,11 @@ def fetch_account_name(account_id, federation_url):
     return f"{account_id[:8]}*******{account_id[-8:]}"
 
 def _extract_amount_and_parties(record):
-    
+    """
+    FIX #2: Safely extract amount, sender, and receiver from a payment record
+    regardless of operation type (payment, path_payment_strict_send/receive).
+    Blockdaemon may return path_payment operations that have different field names.
+    """
     op_type = record.get("type", "payment")
 
     # For path_payment_strict_send, the destination receives 'amount'
@@ -107,11 +111,15 @@ def analyze_stellar_account(account_id, months=1):
 
     client = RequestsClient()
     if bd_api_key:
-        client.session.headers.update({
-            "Authorization": f"Bearer {bd_api_key}"
-        })
+        # FIX: Stellar SDK uses '_session' internally, not 'session'
+        session = getattr(client, '_session', None) or getattr(client, 'session', None)
+        if session:
+            session.headers.update({"Authorization": f"Bearer {bd_api_key}"})
+        else:
+            # Fallback: set auth via requests directly on whichever attr exists
+            client._session = requests.Session()
+            client._session.headers.update({"Authorization": f"Bearer {bd_api_key}"})
     else:
-    
         print("WARNING: No BLOCKDAEMON_API_KEY found in environment. "
               "Blockdaemon requires a valid Bearer token — requests will be "
               "rejected with HTTP 401, which appears as empty results.")
@@ -134,6 +142,7 @@ def analyze_stellar_account(account_id, months=1):
             .limit(200)
         )
 
+        # FIX #1: Robust first-page fetch with explicit error surfacing
         try:
             records = payments_call.call()
         except Exception as first_call_err:
@@ -142,6 +151,7 @@ def analyze_stellar_account(account_id, months=1):
                   "account ID is valid on Stellar mainnet.")
             return None
 
+        # Step 1: Collect all transactions as fast as possible
         while not stop_fetching:
             page_records = records.get('_embedded', {}).get('records', [])
             if not page_records:
@@ -160,6 +170,7 @@ def analyze_stellar_account(account_id, months=1):
                 if asset_code not in ["DMMK", "nUSDT"]:
                     continue
 
+                # FIX #2: Use the safe extractor for all operation types
                 raw_amount_str, sender, receiver = _extract_amount_and_parties(record)
 
                 raw_val = Decimal(raw_amount_str or '0')
@@ -188,6 +199,7 @@ def analyze_stellar_account(account_id, months=1):
             if stop_fetching:
                 break
 
+            # FIX #1: Guard .next() — Blockdaemon can return None or raise
             # instead of returning an empty records list like Horizon does.
             try:
                 next_page = payments_call.next()
@@ -205,7 +217,7 @@ def analyze_stellar_account(account_id, months=1):
                 print(f"DEBUG: Pagination stopped: {page_err}")
                 break
 
-        
+        # Step 2: Resolve names concurrently (Multithreading)
         name_mapping = {}
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             futures = {
@@ -237,7 +249,7 @@ def analyze_stellar_account(account_id, months=1):
         return raw_data
 
     except Exception as e:
-    
+        # FIX #3: Print the real error instead of silently returning None
         print(f"CRITICAL ERROR in analyze_stellar_account: {type(e).__name__}: {e}")
         import traceback
         traceback.print_exc()
